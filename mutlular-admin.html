@@ -100,16 +100,20 @@ window.doLogout = async () => {
 // ══════════════════════════════════════════
 async function loadDashboard() {
   try {
-    const [bekleyenSnap, onaySnap, haberSnap, esnafSnap] = await Promise.all([
+    const [bekleyenSnap, onaySnap, haberSnap, esnafSnap, basvuruSnap, kampanyaSnap] = await Promise.all([
       getDocs(query(collection(db,'ilanlar'), where('status','==','pending'))),
       getDocs(query(collection(db,'ilanlar'), where('status','==','approved'))),
       getDocs(collection(db,'haberler')),
-      getDocs(collection(db,'esnaf'))
+      getDocs(collection(db,'esnaf')),
+      getDocs(query(collection(db,'esnaf_basvurular'), where('status','==','pending'))),
+      getDocs(query(collection(db,'esnaf_kampanyalar'), where('status','==','pending')))
     ]);
     document.getElementById('statBekleyen').textContent  = bekleyenSnap.size;
     document.getElementById('statOnaylanan').textContent = onaySnap.size;
     document.getElementById('statHaber').textContent     = haberSnap.size;
     document.getElementById('statEsnaf').textContent     = esnafSnap.size;
+    document.getElementById('statEsnafBasvuru').textContent  = basvuruSnap.size;
+    document.getElementById('statKampanya').textContent      = kampanyaSnap.size;
   } catch(e) {
     console.warn('Dashboard istatistik hatası:', e.message);
   }
@@ -527,7 +531,129 @@ window.rolSil = async uid => {
 };
 
 // ══════════════════════════════════════════
-// NAVİGASYON
+// ESNAF BAŞVURU YÖNETİMİ
+// ══════════════════════════════════════════
+window.loadEsnafBasvurular = (filtre = 'pending') => {
+  document.querySelectorAll('.esnaf-filtre-btn').forEach(b => b.classList.toggle('active', b.dataset.f === filtre));
+  const list = document.getElementById('esnafBasvuruList');
+  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
+  const q = filtre === 'all'
+    ? query(collection(db,'esnaf_basvurular'), orderBy('createdAt','desc'))
+    : query(collection(db,'esnaf_basvurular'), where('status','==',filtre), orderBy('createdAt','desc'));
+  onSnapshot(q, snap => {
+    list.innerHTML = '';
+    if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
+    snap.forEach(d => list.appendChild(buildBasvuruRow(d.id, d.data())));
+  }, err => {
+    console.warn('Başvuru yükle:', err.message);
+    list.innerHTML = '<div class="empty-state">⚠️ Veri yüklenemedi. Composite index gerekebilir.</div>';
+  });
+};
+
+function buildBasvuruRow(id, data) {
+  const div = document.createElement('div');
+  div.className = 'list-row';
+  const katEmoji = {market:'🛒',kasap:'🥩',manav:'🥦',ekmek:'🍞',lokanta:'🍽️',kafe:'☕',berber:'✂️',eczane:'💊',kirtasiye:'📚',tamirhane:'🔧',diger:'🏪'};
+  div.innerHTML = `
+    <div class="row-main">
+      <div class="row-thumb-placeholder">${katEmoji[data.kategori]||'🏪'}</div>
+      <div class="row-body">
+        <div class="row-top">
+          <span class="row-status status-${data.status}">${data.status==='approved'?'✅ Onaylı':data.status==='rejected'?'❌ Reddedildi':'⏳ Bekliyor'}</span>
+        </div>
+        <div class="row-title">${esc(data.isyeri)}</div>
+        <div class="row-meta">👤 ${esc(data.name)} · 📧 ${esc(data.email)} · 📞 ${esc(data.telefon||'—')}</div>
+        <div class="row-meta">📍 ${esc(data.adres||'—')} · 🏷️ ${esc(data.kategori||'—')}</div>
+      </div>
+    </div>
+    <div class="row-actions">
+      ${data.status === 'pending' ? `
+        <button class="btn-onay" onclick="basvuruOnayla('${id}')">✅ Onayla</button>
+        <button class="btn-red"  onclick="basvuruReddet('${id}')">❌ Reddet</button>` : ''}
+      ${data.status === 'approved' ? `<button class="btn-red" onclick="basvuruReddet('${id}')">🚫 İptal Et</button>` : ''}
+      <button class="btn-del" onclick="basvuruSil('${id}')">🗑️ Sil</button>
+    </div>`;
+  return div;
+}
+
+window.basvuruOnayla = async id => {
+  await updateDoc(doc(db,'esnaf_basvurular',id), { status:'approved', approvedAt: serverTimestamp(), approvedBy: currentUser.uid });
+  showToast('Esnaf başvurusu onaylandı ✅');
+};
+
+window.basvuruReddet = async id => {
+  await updateDoc(doc(db,'esnaf_basvurular',id), { status:'rejected', rejectedAt: serverTimestamp() });
+  showToast('Başvuru reddedildi.');
+};
+
+window.basvuruSil = async id => {
+  if (!confirm('Bu başvuruyu kalıcı silmek istiyor musunuz?')) return;
+  await deleteDoc(doc(db,'esnaf_basvurular',id));
+  showToast('Başvuru silindi.');
+};
+
+// ══════════════════════════════════════════
+// KAMPANYA YÖNETİMİ
+// ══════════════════════════════════════════
+window.loadKampanyalar = (filtre = 'pending') => {
+  document.querySelectorAll('.kamp-filtre-btn').forEach(b => b.classList.toggle('active', b.dataset.f === filtre));
+  const list = document.getElementById('kampanyaList');
+  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
+  const q = filtre === 'all'
+    ? query(collection(db,'esnaf_kampanyalar'), orderBy('createdAt','desc'), limit(50))
+    : query(collection(db,'esnaf_kampanyalar'), where('status','==',filtre), orderBy('createdAt','desc'));
+  onSnapshot(q, snap => {
+    list.innerHTML = '';
+    if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
+    snap.forEach(d => list.appendChild(buildKampanyaRow(d.id, d.data())));
+  }, err => {
+    console.warn('Kampanya yükle:', err.message);
+  });
+};
+
+function buildKampanyaRow(id, data) {
+  const div = document.createElement('div');
+  div.className = 'list-row';
+  div.innerHTML = `
+    <div class="row-main">
+      <div class="row-thumb-placeholder">📢</div>
+      <div class="row-body">
+        <div class="row-top">
+          <span class="row-status status-${data.status}">${data.status==='approved'?'✅ Yayında':data.status==='rejected'?'❌ Reddedildi':'⏳ Bekliyor'}</span>
+          <span class="row-meta" style="margin-left:auto;">${timeAgo(data.createdAt?.toDate())}</span>
+        </div>
+        <div class="row-title">${esc(data.mesaj)}</div>
+        <div class="row-meta">🏪 ${esc(data.esnafAdi||'—')}</div>
+      </div>
+    </div>
+    <div class="row-actions">
+      ${data.status === 'pending' ? `
+        <button class="btn-onay" onclick="kampanyaOnayla('${id}')">✅ Onayla</button>
+        <button class="btn-red"  onclick="kampanyaReddet('${id}')">❌ Reddet</button>` : ''}
+      ${data.status === 'approved' ? `<button class="btn-red" onclick="kampanyaReddet('${id}')">🚫 Kaldır</button>` : ''}
+      <button class="btn-del" onclick="kampanyaAdminSil('${id}')">🗑️ Sil</button>
+    </div>`;
+  return div;
+}
+
+window.kampanyaOnayla = async id => {
+  await updateDoc(doc(db,'esnaf_kampanyalar',id), { status:'approved', approvedAt: serverTimestamp(), approvedBy: currentUser.uid });
+  showToast('Kampanya onaylandı ✅');
+};
+
+window.kampanyaReddet = async id => {
+  await updateDoc(doc(db,'esnaf_kampanyalar',id), { status:'rejected' });
+  showToast('Kampanya reddedildi.');
+};
+
+window.kampanyaAdminSil = async id => {
+  if (!confirm('Bu kampanyayı silmek istiyor musunuz?')) return;
+  await deleteDoc(doc(db,'esnaf_kampanyalar',id));
+  showToast('Kampanya silindi.');
+};
+
+// ══════════════════════════════════════════
+// SON DAKİKA DÜZELTME
 // ══════════════════════════════════════════
 window.navigateTo = (page) => {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -535,11 +661,12 @@ window.navigateTo = (page) => {
   document.getElementById('page-' + page)?.classList.add('active');
   document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
 
-  // Sayfa açılınca veri yükle
-  if (page === 'ilanlar')      loadIlanlar('pending');
-  if (page === 'haberler')     loadHaberler();
-  if (page === 'esnaf')        loadEsnaf();
-  if (page === 'kullanicilar') loadKullanicilar();
+  if (page === 'ilanlar')          loadIlanlar('pending');
+  if (page === 'haberler')         loadHaberler();
+  if (page === 'esnaf')            loadEsnaf();
+  if (page === 'kullanicilar')     loadKullanicilar();
+  if (page === 'esnaf-basvurular') loadEsnafBasvurular();
+  if (page === 'kampanyalar')      loadKampanyalar();
 };
 
 // ══════════════════════════════════════════
@@ -707,7 +834,7 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:
 .page-sub{font-size:13px;color:var(--muted);margin-top:4px;}
 
 /* DASHBOARD STATS */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;}
 .stat-card{background:#fff;border-radius:14px;padding:20px;border:1px solid var(--border);position:relative;overflow:hidden;}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--red));}
 .stat-icon{font-size:28px;margin-bottom:10px;}
@@ -893,6 +1020,12 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:
       <div class="nav-link" data-page="esnaf" onclick="navigateTo('esnaf')">
         <span class="ni">🏪</span> Esnaf Yönetimi
       </div>
+      <div class="nav-link" data-page="esnaf-basvurular" onclick="navigateTo('esnaf-basvurular')">
+        <span class="ni">📝</span> Esnaf Başvuruları
+      </div>
+      <div class="nav-link" data-page="kampanyalar" onclick="navigateTo('kampanyalar')">
+        <span class="ni">📢</span> Kampanyalar
+      </div>
 
       <div class="nav-section">Sistem</div>
       <div class="nav-link admin-only" data-page="kullanicilar" onclick="navigateTo('kullanicilar')" style="display:none;">
@@ -935,6 +1068,16 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:
           <div class="stat-icon">🏪</div>
           <div class="stat-num" id="statEsnaf">—</div>
           <div class="stat-label">Kayıtlı Esnaf</div>
+        </div>
+        <div class="stat-card" style="--accent:#EC4899;">
+          <div class="stat-icon">📝</div>
+          <div class="stat-num" id="statEsnafBasvuru">—</div>
+          <div class="stat-label">Bekleyen Başvuru</div>
+        </div>
+        <div class="stat-card" style="--accent:#F97316;">
+          <div class="stat-icon">📢</div>
+          <div class="stat-num" id="statKampanya">—</div>
+          <div class="stat-label">Bekleyen Kampanya</div>
         </div>
       </div>
 
@@ -1080,6 +1223,40 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:
           <div class="section-card-title">📋 Kayıtlı Esnaf</div>
         </div>
         <div id="esnafList"></div>
+      </div>
+    </div>
+
+    <!-- ESNAF BAŞVURULARI -->
+    <div class="page" id="page-esnaf-basvurular">
+      <div class="page-header">
+        <div class="page-title">📝 Esnaf Başvuruları</div>
+        <div class="page-sub">Mahalle esnafı kayıt başvurularını onaylayın</div>
+      </div>
+      <div class="filtre-bar">
+        <button class="filtre-btn esnaf-filtre-btn active" data-f="pending"  onclick="loadEsnafBasvurular('pending')">⏳ Bekleyenler</button>
+        <button class="filtre-btn esnaf-filtre-btn"        data-f="approved" onclick="loadEsnafBasvurular('approved')">✅ Onaylananlar</button>
+        <button class="filtre-btn esnaf-filtre-btn"        data-f="rejected" onclick="loadEsnafBasvurular('rejected')">❌ Reddedilenler</button>
+        <button class="filtre-btn esnaf-filtre-btn"        data-f="all"      onclick="loadEsnafBasvurular('all')">📋 Tümü</button>
+      </div>
+      <div class="section-card">
+        <div id="esnafBasvuruList"></div>
+      </div>
+    </div>
+
+    <!-- KAMPANYALAR -->
+    <div class="page" id="page-kampanyalar">
+      <div class="page-header">
+        <div class="page-title">📢 Kampanya Yönetimi</div>
+        <div class="page-sub">Esnafların gönderdiği kampanyaları onaylayın</div>
+      </div>
+      <div class="filtre-bar">
+        <button class="filtre-btn kamp-filtre-btn active" data-f="pending"  onclick="loadKampanyalar('pending')">⏳ Bekleyenler</button>
+        <button class="filtre-btn kamp-filtre-btn"        data-f="approved" onclick="loadKampanyalar('approved')">✅ Yayındakiler</button>
+        <button class="filtre-btn kamp-filtre-btn"        data-f="rejected" onclick="loadKampanyalar('rejected')">❌ Reddedilenler</button>
+        <button class="filtre-btn kamp-filtre-btn"        data-f="all"      onclick="loadKampanyalar('all')">📋 Tümü</button>
+      </div>
+      <div class="section-card">
+        <div id="kampanyaList"></div>
       </div>
     </div>
 
