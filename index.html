@@ -63,15 +63,16 @@ onAuthStateChanged(auth, async user => {
     document.getElementById('panelLogin').style.display  = 'none';
     document.getElementById('panelLogout').style.display = 'flex';
     document.getElementById('panelLogout2').style.display= 'block';
-    // Rol kontrolü
+    // Admin/editör rol kontrolü
     const adminSnap = await getDoc(doc(db,'admins', user.uid));
     if (adminSnap.exists()) {
       currentRole = adminSnap.data().role;
       document.getElementById('adminPanelLink').style.display = 'flex';
     }
+    // Esnaf başvuru kontrolü
+    checkEsnafDurumu(user.uid);
     loadUserStats(user.uid);
   } else {
-    // Profil listener'ı temizle
     if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
     currentUser = null; currentRole = null;
     document.getElementById('avatarBtn').textContent = '👤';
@@ -82,6 +83,7 @@ onAuthStateChanged(auth, async user => {
     document.getElementById('panelLogout').style.display = 'none';
     document.getElementById('panelLogout2').style.display= 'none';
     document.getElementById('adminPanelLink').style.display = 'none';
+    document.getElementById('esnafPanelLink').style.display = 'none';
     ['ssP','ssG','ssR'].forEach(id => document.getElementById(id).textContent = '—');
   }
 });
@@ -104,19 +106,61 @@ window.doLogin = async () => {
   finally { setLoad('loginBtn',false); }
 };
 
+let _hesapTuru = 'sakin';
+window.selectHesapTuru = (tur) => {
+  _hesapTuru = tur;
+  document.getElementById('ht-sakin').classList.toggle('active', tur === 'sakin');
+  document.getElementById('ht-esnaf').classList.toggle('active', tur === 'esnaf');
+  document.getElementById('esnafEkAlanlar').style.display = tur === 'esnaf' ? 'block' : 'none';
+};
+
 window.doRegister = async () => {
   const name  = document.getElementById('regName').value.trim();
   const email = document.getElementById('regEmail').value.trim();
   const pass  = document.getElementById('regPass').value;
-  if (!name||!email||!pass){showToast('Tüm alanları doldurun.',true);return;}
-  setLoad('regBtn',true);
+  if (!name || !email || !pass) { showToast('Tüm alanları doldurun.', true); return; }
+  if (pass.length < 6) { showToast('Şifre en az 6 karakter olmalı.', true); return; }
+
+  if (_hesapTuru === 'esnaf') {
+    const isyeri = document.getElementById('regIsyeri').value.trim();
+    if (!isyeri) { showToast('İşyeri adı zorunludur.', true); return; }
+  }
+
+  setLoad('regBtn', true);
   try {
-    const cred = await createUserWithEmailAndPassword(auth,email,pass);
-    await updateProfile(cred.user,{displayName:name});
-    await addDoc(collection(db,'users'),{uid:cred.user.uid,name,email,role:'user',puan:0,createdAt:serverTimestamp()});
-    closeLogin(); showToast('Kayıt başarılı! 🎉');
-  } catch(e){ showToast(authErr(e.code),true); }
-  finally { setLoad('regBtn',false); }
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    await updateProfile(cred.user, { displayName: name });
+
+    if (_hesapTuru === 'esnaf') {
+      const isyeri   = document.getElementById('regIsyeri').value.trim();
+      const kategori = document.getElementById('regKategori').value;
+      const telefon  = document.getElementById('regTelefon').value.trim();
+      const adres    = document.getElementById('regAdres').value.trim();
+      // users koleksiyonuna kaydet
+      await addDoc(collection(db, 'users'), {
+        uid: cred.user.uid, name, email, role: 'esnaf', puan: 0, createdAt: serverTimestamp()
+      });
+      // esnaf_basvurular koleksiyonuna düş - admin onaylayacak
+      await addDoc(collection(db, 'esnaf_basvurular'), {
+        uid: cred.user.uid, name, email, isyeri, kategori,
+        telefon: telefon || '', adres: adres || '',
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+      closeLogin();
+      showToast('Esnaf başvurunuz alındı! Admin onayından sonra aktif olur. 🏪');
+    } else {
+      await addDoc(collection(db, 'users'), {
+        uid: cred.user.uid, name, email, role: 'user', puan: 0, createdAt: serverTimestamp()
+      });
+      closeLogin();
+      showToast('Kayıt başarılı! 🎉');
+    }
+  } catch(e) {
+    showToast(authErr(e.code), true);
+  } finally {
+    setLoad('regBtn', false);
+  }
 };
 
 window.doGoogleLogin = async () => {
@@ -212,21 +256,18 @@ function buildPanoCard(id, data) {
 // HOME — HABERLER (HERO)
 // ══════════════════════════════════════════
 function loadHaberler() {
-  const q = query(collection(db,'haberler'), where('sonDakika','==',true), orderBy('createdAt','desc'), limit(5));
+  const q = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(20));
   onSnapshot(q, snap => {
-    if (snap.empty) {
-      // sonDakika yoksa son haberler
-      const q2 = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(5));
-      getDocs(q2).then(s2 => {
-        heroSlides = s2.docs.map(d=>({id:d.id,...d.data()}));
-        if(heroSlides.length) { renderHero(heroSlides[0]); updateDots(heroSlides.length); }
-      });
-      return;
-    }
-    heroSlides = snap.docs.map(d=>({id:d.id,...d.data()}));
-    heroIdx    = 0;
-    renderHero(heroSlides[0]);
-    updateDots(heroSlides.length);
+    if (snap.empty) return;
+    const all = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    // Önce son dakika, yoksa tüm haberler
+    const sonDakika = all.filter(d => d.sonDakika === true);
+    heroSlides = (sonDakika.length ? sonDakika : all).slice(0, 5);
+    if (heroSlides.length) { renderHero(heroSlides[0]); updateDots(heroSlides.length); }
+    // Arşiv için geri kalan haberler
+    loadArsiv(all);
+  }, err => {
+    console.warn('loadHaberler:', err.message);
   });
 }
 
@@ -333,26 +374,34 @@ function loadEsnaf() {
 // ══════════════════════════════════════════
 // ARŞİV
 // ══════════════════════════════════════════
-function loadArsiv() {
+function loadArsiv(preloaded) {
+  if (preloaded) {
+    renderArsiv(preloaded);
+    return;
+  }
   const q = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(15));
   onSnapshot(q, snap => {
-    const list = document.getElementById('arsivList');
-    list.innerHTML='';
-    if(snap.empty){list.innerHTML='<div class="empty-card">📭 Haber yok</div>';return;}
-    snap.forEach(d=>{
-      const data=d.data(); const ago=timeAgo(data.createdAt?.toDate());
-      const item=document.createElement('div');
-      item.className='arsiv-item';
-      item.onclick=()=>goPage('haber',{id:d.id,...data});
-      item.innerHTML=`
-        <div class="arsiv-thumb">${data.imageURL?`<img src="${data.imageURL}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" alt="">`:data.emoji||'📰'}</div>
-        <div class="arsiv-body">
-          <div class="arsiv-title">${esc(data.baslik)}</div>
-          <div class="arsiv-excerpt">${esc((data.ozet||'').substring(0,80))}…</div>
-          <div class="arsiv-time">${ago}</div>
-        </div>`;
-      list.appendChild(item);
-    });
+    renderArsiv(snap.docs.map(d => ({id:d.id, ...d.data()})));
+  });
+}
+
+function renderArsiv(items) {
+  const list = document.getElementById('arsivList');
+  list.innerHTML = '';
+  if (!items.length) { list.innerHTML = '<div class="empty-card">📭 Haber yok</div>'; return; }
+  items.forEach(data => {
+    const ago  = timeAgo(data.createdAt?.toDate());
+    const item = document.createElement('div');
+    item.className = 'arsiv-item';
+    item.onclick = () => goPage('haber', data);
+    item.innerHTML = `
+      <div class="arsiv-thumb">${data.imageURL?`<img src="${data.imageURL}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" alt="">`:data.emoji||'📰'}</div>
+      <div class="arsiv-body">
+        <div class="arsiv-title">${data.sonDakika?'<span style="background:#D32F2F;color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;margin-right:5px;">SON DAKİKA</span>':''}${esc(data.baslik)}</div>
+        <div class="arsiv-excerpt">${esc((data.ozet||'').substring(0,80))}…</div>
+        <div class="arsiv-time">${ago}</div>
+      </div>`;
+    list.appendChild(item);
   });
 }
 
@@ -611,8 +660,112 @@ window.kFotoPreview = input => {
 // ══════════════════════════════════════════
 // PROFİL
 // ══════════════════════════════════════════
-let _profileUnsub = null;
-function loadProfile() {
+// ══════════════════════════════════════════
+// ESNAF PANELİ
+// ══════════════════════════════════════════
+let _currentEsnafData = null;
+
+async function checkEsnafDurumu(uid) {
+  try {
+    const snap = await getDocs(query(collection(db,'esnaf_basvurular'), where('uid','==',uid), limit(1)));
+    if (snap.empty) return;
+    _currentEsnafData = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    document.getElementById('esnafPanelLink').style.display = 'flex';
+  } catch(e) { console.warn('Esnaf durumu:', e.message); }
+}
+
+window.openEsnafPanel = async () => {
+  if (!_currentEsnafData) return;
+  closeUserPanel();
+  const overlay = document.getElementById('esnafPanelOverlay');
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  renderEsnafPanel();
+};
+
+window.closeEsnafPanel = () => {
+  document.getElementById('esnafPanelOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+};
+
+async function renderEsnafPanel() {
+  const d = _currentEsnafData;
+  const isApproved = d.status === 'approved';
+  const statusHtml = isApproved
+    ? '<span class="ep-status-badge ep-status-approved">✅ Hesabınız Aktif</span>'
+    : '<span class="ep-status-badge ep-status-pending">⏳ Onay Bekleniyor</span>';
+
+  // Kampanyaları çek
+  let kampanyaHtml = '';
+  try {
+    const kSnap = await getDocs(query(collection(db,'esnaf_kampanyalar'), where('esnafId','==',d.id), orderBy('createdAt','desc'), limit(10)));
+    if (kSnap.empty) {
+      kampanyaHtml = '<div style="padding:12px;text-align:center;color:#8E8E93;font-size:13px;">Henüz kampanya eklenmedi.</div>';
+    } else {
+      kSnap.forEach(k => {
+        const kd = k.data();
+        kampanyaHtml += `<div class="ep-kamp-item">
+          <div>
+            <div class="ep-kamp-text">${esc(kd.mesaj)}</div>
+            <div class="ep-kamp-meta">${kd.status==='approved'?'✅ Yayında':'⏳ Onay bekliyor'} · ${timeAgo(kd.createdAt?.toDate())}</div>
+          </div>
+          <button class="ep-kamp-sil" onclick="kampanyaSil('${k.id}')" title="Sil">🗑️</button>
+        </div>`;
+      });
+    }
+  } catch(e) { kampanyaHtml = ''; }
+
+  document.getElementById('esnafPanelSheet').innerHTML = `
+    <div class="ep-head">
+      <div class="ep-title">🏪 ${esc(d.isyeri)}</div>
+      <button class="ep-close" onclick="closeEsnafPanel()">✕</button>
+    </div>
+    ${statusHtml}
+    ${!isApproved ? `<div style="background:#FFF8E1;border-radius:12px;padding:12px;font-size:12px;color:#795800;margin-bottom:16px;">Başvurunuz admin tarafından inceleniyor. Onaylandıktan sonra kampanya ekleyebilirsiniz.</div>` : ''}
+
+    ${isApproved ? `
+    <div style="margin-bottom:16px;">
+      <div class="f-label" style="margin-bottom:8px;">YENİ KAMPANYA EKLE</div>
+      <textarea class="f-input" id="epKampanyaMesaj" placeholder="Örn: Bugün tüm ürünlerde %15 indirim! 🎉" style="height:80px;resize:none;"></textarea>
+      <button class="send-btn" style="margin-top:8px;" onclick="kampanyaGonder()">📢 Kampanyayı Gönder</button>
+      <div style="font-size:11px;color:#8E8E93;margin-top:6px;text-align:center;">Admin onayından sonra yayına girer</div>
+    </div>
+    <div class="f-label" style="margin-bottom:8px;">KAMPANYALARıM</div>
+    <div class="ep-kampanya-list">${kampanyaHtml}</div>
+    ` : ''}
+
+    <div style="background:var(--bg);border-radius:12px;padding:12px;font-size:12px;color:#8E8E93;margin-top:8px;">
+      📧 ${esc(d.email)} · 📞 ${esc(d.telefon||'—')} · 📍 ${esc(d.adres||'—')}
+    </div>`;
+}
+
+window.kampanyaGonder = async () => {
+  if (!_currentEsnafData || _currentEsnafData.status !== 'approved') return;
+  const mesaj = document.getElementById('epKampanyaMesaj').value.trim();
+  if (!mesaj) { showToast('Kampanya mesajı boş olamaz.', true); return; }
+  try {
+    await addDoc(collection(db,'esnaf_kampanyalar'), {
+      esnafId:   _currentEsnafData.id,
+      esnafAdi:  _currentEsnafData.isyeri,
+      uid:       currentUser.uid,
+      mesaj,
+      status:    'pending',
+      createdAt: serverTimestamp()
+    });
+    document.getElementById('epKampanyaMesaj').value = '';
+    showToast('Kampanya gönderildi! Admin onayı bekleniyor. 📢');
+    renderEsnafPanel();
+  } catch(e) { showToast('Hata: ' + e.message, true); }
+};
+
+window.kampanyaSil = async (id) => {
+  if (!confirm('Bu kampanyayı silmek istiyor musunuz?')) return;
+  await deleteDoc(doc(db,'esnaf_kampanyalar',id));
+  showToast('Kampanya silindi.');
+  renderEsnafPanel();
+};
+
+
   if(!currentUser){
     document.getElementById('profileContent').innerHTML=`
       <div style="padding:60px 20px;text-align:center;">
@@ -1088,6 +1241,28 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
 .lb-div::before{left:0;}.lb-div::after{right:0;}
 .soc-btn{width:100%;border:1.5px solid var(--border);background:var(--white);padding:12px;border-radius:12px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px;}
 
+/* HESAP TÜRÜ KART */
+.hesap-turu-kart{border:2px solid var(--border);border-radius:14px;padding:14px 10px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg);}
+.hesap-turu-kart.active{border-color:var(--red);background:#FFF5F5;}
+.hesap-turu-kart:active{opacity:.8;}
+
+/* ESNAF PANELİ MODAL */
+.esnaf-panel-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:300;align-items:flex-end;backdrop-filter:blur(5px);}
+.esnaf-panel-overlay.open{display:flex;}
+.esnaf-panel-sheet{width:100%;max-width:480px;margin:0 auto;background:var(--white);border-radius:20px 20px 0 0;padding:12px 20px 40px;max-height:92%;overflow-y:auto;animation:slideUp .32s cubic-bezier(.34,1.4,.64,1);}
+.ep-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.ep-title{font-size:18px;font-weight:800;color:var(--ink);}
+.ep-close{width:30px;height:30px;border-radius:50%;background:var(--bg);border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.ep-status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;margin-bottom:16px;}
+.ep-status-pending{background:#FFF8E1;color:#92400E;}
+.ep-status-approved{background:#ECFDF5;color:#065F46;}
+.ep-kampanya-list{margin-bottom:16px;}
+.ep-kamp-item{background:var(--bg);border-radius:12px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.ep-kamp-text{font-size:13px;font-weight:600;color:var(--ink);flex:1;}
+.ep-kamp-meta{font-size:10px;color:var(--muted);margin-top:3px;}
+.ep-kamp-sil{background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);padding:2px;}
+.ep-kamp-sil:hover{color:var(--red);}
+
 /* İLAN DETAY MODAL */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:250;align-items:flex-end;backdrop-filter:blur(4px);}
 .modal-overlay.open{display:flex;}
@@ -1452,6 +1627,11 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
           <div><div class="ss-it">Yönetim Paneli</div><div class="ss-is">Haber &amp; ilan yönet</div></div>
           <div class="ss-arr">›</div>
         </div>
+        <div class="ss-item" id="esnafPanelLink" style="display:none;" onclick="openEsnafPanel()">
+          <div class="ss-ico" style="background:#E8F5E9;">🏪</div>
+          <div><div class="ss-it">Esnaf Paneliim</div><div class="ss-is">Kampanya &amp; bilgilerim</div></div>
+          <div class="ss-arr">›</div>
+        </div>
       </div>
       <div class="ss-div"></div>
       <div class="ss-item" onclick="closeUserPanel();goPage('vefat')">
@@ -1503,6 +1683,23 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
         <button class="soc-btn" onclick="doGoogleLogin()">🔵 Google ile Giriş Yap</button>
       </div>
       <div id="kayitForm" style="display:none;">
+        <!-- Hesap türü seçici -->
+        <div class="f-row" style="margin-bottom:14px;">
+          <label class="f-label">Hesap Türü</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="hesap-turu-kart active" id="ht-sakin" onclick="selectHesapTuru('sakin')">
+              <div style="font-size:22px;">🏠</div>
+              <div style="font-size:12px;font-weight:800;margin-top:4px;">Mahalle Sakini</div>
+              <div style="font-size:10px;color:#636366;margin-top:2px;">İlan ver, oy kullan</div>
+            </div>
+            <div class="hesap-turu-kart" id="ht-esnaf" onclick="selectHesapTuru('esnaf')">
+              <div style="font-size:22px;">🏪</div>
+              <div style="font-size:12px;font-weight:800;margin-top:4px;">Mahalle Esnafı</div>
+              <div style="font-size:10px;color:#636366;margin-top:2px;">Kampanya paylaş</div>
+            </div>
+          </div>
+        </div>
+
         <div class="f-row" style="margin-bottom:12px;">
           <label class="f-label">Ad Soyad</label>
           <input type="text" class="f-input" id="regName" placeholder="Adınız Soyadınız">
@@ -1515,11 +1712,54 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
           <label class="f-label">Şifre</label>
           <input type="password" class="f-input" id="regPass" placeholder="En az 6 karakter">
         </div>
+
+        <!-- Esnaf ek alanları -->
+        <div id="esnafEkAlanlar" style="display:none;">
+          <div style="background:#FFF8E1;border-radius:12px;padding:10px 13px;font-size:12px;color:#795800;font-weight:600;margin-bottom:12px;">
+            🏪 Esnaf başvurunuz admin onayından geçtikten sonra aktif olur.
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">İşyeri Adı *</label>
+            <input type="text" class="f-input" id="regIsyeri" placeholder="Örn: Hasan Usta Kasap">
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">İş Kategorisi</label>
+            <select class="f-select" id="regKategori">
+              <option value="market">🛒 Market / Bakkal</option>
+              <option value="kasap">🥩 Kasap</option>
+              <option value="manav">🥦 Manav</option>
+              <option value="ekmek">🍞 Fırın / Ekmek</option>
+              <option value="lokanta">🍽️ Lokanta / Restoran</option>
+              <option value="kafe">☕ Kafe</option>
+              <option value="berber">✂️ Berber / Kuaför</option>
+              <option value="eczane">💊 Eczane</option>
+              <option value="kirtasiye">📚 Kırtasiye</option>
+              <option value="tamirhane">🔧 Tamirhane</option>
+              <option value="diger">🏪 Diğer</option>
+            </select>
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">Telefon</label>
+            <input type="tel" class="f-input" id="regTelefon" placeholder="0532 123 45 67">
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">Adres / Konum</label>
+            <input type="text" class="f-input" id="regAdres" placeholder="Atatürk Cad. No:12">
+          </div>
+        </div>
+
         <button class="lb-btn" id="regBtn" onclick="doRegister()">Üye Ol</button>
         <div class="lb-div">veya</div>
         <button class="soc-btn" onclick="doGoogleLogin()">🔵 Google ile Kayıt Ol</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ESNAF PANELİ -->
+<div class="esnaf-panel-overlay" id="esnafPanelOverlay" onclick="if(event.target===this)closeEsnafPanel()">
+  <div class="esnaf-panel-sheet" id="esnafPanelSheet">
+    <div style="text-align:center;padding:40px;color:#8E8E93;">Yükleniyor…</div>
   </div>
 </div>
 
