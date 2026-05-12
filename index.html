@@ -71,6 +71,8 @@ onAuthStateChanged(auth, async user => {
     }
     loadUserStats(user.uid);
   } else {
+    // Profil listener'ı temizle
+    if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
     currentUser = null; currentRole = null;
     document.getElementById('avatarBtn').textContent = '👤';
     document.getElementById('ssAva').textContent     = '👤';
@@ -159,8 +161,20 @@ function loadPano() {
   onSnapshot(q, snap => {
     const row = document.getElementById('panoRow');
     row.innerHTML = '';
-    if (snap.empty) { row.innerHTML = '<div class="empty-card">📭 Henüz ilan yok</div>'; return; }
+    if (snap.empty) { row.innerHTML = '<div class="empty-card">📭 Henüz onaylanmış ilan yok</div>'; return; }
     snap.forEach(d => row.appendChild(buildPanoCard(d.id, d.data())));
+  }, err => {
+    // Composite index henüz oluşturulmamışsa index linki console'a düşer,
+    // fallback olarak daha basit sorgu dene
+    console.warn('loadPano index hatası:', err.message);
+    const q2 = query(collection(db,'ilanlar'), orderBy('createdAt','desc'), limit(20));
+    onSnapshot(q2, snap => {
+      const row = document.getElementById('panoRow');
+      row.innerHTML = '';
+      const approved = snap.docs.filter(d => d.data().status === 'approved');
+      if (!approved.length) { row.innerHTML = '<div class="empty-card">📭 Henüz onaylanmış ilan yok</div>'; return; }
+      approved.slice(0,8).forEach(d => row.appendChild(buildPanoCard(d.id, d.data())));
+    });
   });
 }
 
@@ -393,52 +407,57 @@ async function loadSearch(term) {
   list.innerHTML = '<div class="loading-sm">Aranıyor…</div>';
   const term_lower = term.toLowerCase();
 
-  // Firestore'da tam metin arama yoktur, client-side filtreleriz
-  const [haberSnap, ilanSnap] = await Promise.all([
-    getDocs(query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(50))),
-    getDocs(query(collection(db,'ilanlar'), where('status','==','approved'), orderBy('createdAt','desc'), limit(50)))
-  ]);
+  try {
+    const [haberSnap, ilanSnap] = await Promise.all([
+      getDocs(query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(50))),
+      getDocs(query(collection(db,'ilanlar'), orderBy('createdAt','desc'), limit(100)))
+    ]);
 
-  list.innerHTML = '';
-  let count = 0;
+    list.innerHTML = '';
+    let count = 0;
 
-  haberSnap.forEach(d => {
-    const data=d.data();
-    if((data.baslik||'').toLowerCase().includes(term_lower) || (data.ozet||'').toLowerCase().includes(term_lower)){
-      count++;
-      const item=document.createElement('div');
-      item.className='search-item';
-      item.onclick=()=>goPage('haber',{id:d.id,...data});
-      item.innerHTML=`
-        <div class="si-icon">${data.emoji||'📰'}</div>
-        <div class="si-body">
-          <div class="si-type">HABER</div>
-          <div class="si-title">${highlight(esc(data.baslik),term)}</div>
-          <div class="si-meta">${timeAgo(data.createdAt?.toDate())}</div>
-        </div>`;
-      list.appendChild(item);
-    }
-  });
+    haberSnap.forEach(d => {
+      const data=d.data();
+      if((data.baslik||'').toLowerCase().includes(term_lower) || (data.ozet||'').toLowerCase().includes(term_lower)){
+        count++;
+        const item=document.createElement('div');
+        item.className='search-item';
+        item.onclick=()=>goPage('haber',{id:d.id,...data});
+        item.innerHTML=`
+          <div class="si-icon">${data.emoji||'📰'}</div>
+          <div class="si-body">
+            <div class="si-type">HABER</div>
+            <div class="si-title">${highlight(esc(data.baslik),term)}</div>
+            <div class="si-meta">${timeAgo(data.createdAt?.toDate())}</div>
+          </div>`;
+        list.appendChild(item);
+      }
+    });
 
-  ilanSnap.forEach(d => {
-    const data=d.data();
-    if((data.baslik||'').toLowerCase().includes(term_lower) || (data.aciklama||'').toLowerCase().includes(term_lower)){
-      count++;
-      const item=document.createElement('div');
-      item.className='search-item';
-      item.onclick=()=>openIlanDetay(d.id,data);
-      item.innerHTML=`
-        <div class="si-icon">${{kayip:'🔍',acil:'🩸',satilik:'📦',duyuru:'📢',sorun:'🚧'}[data.kategori]||'📌'}</div>
-        <div class="si-body">
-          <div class="si-type">${(data.kategori||'İLAN').toUpperCase()}</div>
-          <div class="si-title">${highlight(esc(data.baslik),term)}</div>
-          <div class="si-meta">${timeAgo(data.createdAt?.toDate())}</div>
-        </div>`;
-      list.appendChild(item);
-    }
-  });
+    ilanSnap.forEach(d => {
+      const data=d.data();
+      if(data.status !== 'approved') return;
+      if((data.baslik||'').toLowerCase().includes(term_lower) || (data.aciklama||'').toLowerCase().includes(term_lower)){
+        count++;
+        const item=document.createElement('div');
+        item.className='search-item';
+        item.onclick=()=>openIlanDetay(d.id,data);
+        item.innerHTML=`
+          <div class="si-icon">${{kayip:'🔍',acil:'🩸',satilik:'📦',duyuru:'📢',sorun:'🚧'}[data.kategori]||'📌'}</div>
+          <div class="si-body">
+            <div class="si-type">${(data.kategori||'İLAN').toUpperCase()}</div>
+            <div class="si-title">${highlight(esc(data.baslik),term)}</div>
+            <div class="si-meta">${timeAgo(data.createdAt?.toDate())}</div>
+          </div>`;
+        list.appendChild(item);
+      }
+    });
 
-  if(count===0) list.innerHTML=`<div style="padding:40px;text-align:center;color:#8E8E93;font-size:14px;">😕 "${esc(term)}" için sonuç bulunamadı</div>`;
+    if(count===0) list.innerHTML=`<div style="padding:40px;text-align:center;color:#8E8E93;font-size:14px;">😕 "${esc(term)}" için sonuç bulunamadı</div>`;
+  } catch(e) {
+    console.warn('Arama hatası:', e.message);
+    list.innerHTML = `<div style="padding:40px;text-align:center;color:#8E8E93;font-size:14px;">⚠️ Arama şu anda yapılamıyor</div>`;
+  }
 }
 
 function highlight(text, term) {
@@ -592,6 +611,7 @@ window.kFotoPreview = input => {
 // ══════════════════════════════════════════
 // PROFİL
 // ══════════════════════════════════════════
+let _profileUnsub = null;
 function loadProfile() {
   if(!currentUser){
     document.getElementById('profileContent').innerHTML=`
@@ -603,8 +623,10 @@ function loadProfile() {
       </div>`;
     return;
   }
+  // Önceki listener varsa kapat
+  if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
   const q = query(collection(db,'ilanlar'), where('uid','==',currentUser.uid), orderBy('createdAt','desc'));
-  onSnapshot(q, snap=>{
+  _profileUnsub = onSnapshot(q, snap=>{
     let html=`
       <div class="profile-top">
         <div class="profile-ava">😊</div>
@@ -620,14 +642,18 @@ function loadProfile() {
     if(snap.empty) html+='<div style="padding:20px;text-align:center;color:#8E8E93;">Henüz ilan vermediniz.</div>';
     snap.forEach(d=>{
       const data=d.data();
+      const tagColors=['#7B1FA2','#C62828','#2E7D32','#1565C0','#BF360C'];
+      const tagColor = tagColors[Math.abs(d.id.charCodeAt(0)) % tagColors.length];
       html+=`<div class="profile-ilan-item" onclick="openIlanDetay('${d.id}',${JSON.stringify(data).replace(/"/g,'&quot;')})">
-        <div class="pii-tag" style="background:${['#7B1FA2','#C62828','#2E7D32','#1565C0','#BF360C'][Math.random()*5|0]};">${(data.kategori||'').toUpperCase()}</div>
+        <div class="pii-tag" style="background:${tagColor};">${(data.kategori||'').toUpperCase()}</div>
         <div class="pii-title">${esc(data.baslik)}</div>
-        <div class="pii-status ${data.status==='approved'?'s-ok':data.status==='rejected'?'s-red':'s-wait'}">${data.status==='approved'?'✅ Onaylandı':data.status==='rejected'?'❌ Reddedildi':'⏳ Bekliyor'}</div>
+        <div class="pii-status ${data.status==='approved'?'s-ok':data.status==='rejected'?'s-red':'s-wait'}">${data.status==='approved'?'✅ Onaylandı':data.status==='rejected'?'❌ Reddedildi':'⏳ Onay Bekleniyor'}</div>
         <div class="pii-time">${timeAgo(data.createdAt?.toDate())}</div>
       </div>`;
     });
     document.getElementById('profileContent').innerHTML=html;
+  }, err => {
+    console.warn('loadProfile hatası:', err.message);
   });
 }
 
@@ -642,34 +668,64 @@ window.submitIlan = async () => {
   const konum    = document.getElementById('fKonum').value.trim();
   const telefon  = document.getElementById('fTelefon').value.trim();
   const fotoInput= document.getElementById('fFoto');
-  if(!kategori||!baslik){showToast('Kategori ve başlık zorunludur.',true);return;}
-  setLoad('submitBtn',true,'Gönderiliyor…');
+  if(!kategori){showToast('Lütfen bir kategori seçin.',true);return;}
+  if(!baslik){showToast('Başlık zorunludur.',true);return;}
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '⏳ Gönderiliyor…'; btn.style.opacity='0.7';
   try {
-    let imageURL=null;
+    let imageURL = null;
     if(fotoInput.files[0]){
-      const fd=new FormData();
-      fd.append('file',fotoInput.files[0]);
-      fd.append('upload_preset',CLD_PRESET);
-      fd.append('folder','mutlular_haber/ilanlar');
-      document.getElementById('submitBtn').textContent='Fotoğraf yükleniyor…';
-      const res=await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`,{method:'POST',body:fd});
-      const data=await res.json();
-      imageURL=data.secure_url;
+      const file = fotoInput.files[0];
+      // 20 MB sınırı
+      if(file.size > 20 * 1024 * 1024){
+        showToast('Dosya 20 MB\'dan büyük olamaz.',true);
+        btn.disabled=false; btn.textContent='Paylaşımı Gönder ›'; btn.style.opacity='1';
+        return;
+      }
+      btn.textContent = '📤 Fotoğraf yükleniyor…';
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLD_PRESET);
+      fd.append('folder', 'mutlular_haber/ilanlar');
+      let res;
+      try {
+        res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`, {method:'POST', body:fd});
+      } catch(netErr) {
+        throw new Error('Fotoğraf yüklenemedi. İnternet bağlantınızı kontrol edin.');
+      }
+      const cldData = await res.json();
+      if(!cldData.secure_url){
+        // Cloudinary hata döndürdü
+        const cldMsg = cldData.error?.message || 'Bilinmeyen Cloudinary hatası';
+        throw new Error('Fotoğraf yükleme hatası: ' + cldMsg);
+      }
+      imageURL = cldData.secure_url;
+      btn.textContent = '💾 Kaydediliyor…';
     }
     await addDoc(collection(db,'ilanlar'),{
-      kategori,baslik,aciklama,konum,telefon,imageURL,
-      status:'pending',
-      uid:currentUser.uid,
-      authorName:currentUser.displayName||currentUser.email,
-      createdAt:serverTimestamp()
+      kategori,
+      baslik,
+      aciklama: aciklama || '',
+      konum: konum || '',
+      telefon: telefon || '',
+      imageURL: imageURL,
+      status: 'pending',
+      uid: currentUser.uid,
+      authorName: currentUser.displayName || currentUser.email,
+      createdAt: serverTimestamp()
     });
     closeShare();
     showToast('İlanınız alındı! Editör onayından sonra yayınlanacak ✅');
-    ['fKategori','fBaslik','fAciklama','fKonum','fTelefon'].forEach(id=>document.getElementById(id).value='');
-    fotoInput.value='';
-    document.getElementById('fotoPreview').innerHTML='';
-  } catch(e){showToast('Hata: '+e.message,true);}
-  finally{setLoad('submitBtn',false,'Paylaşımı Gönder ›');}
+    // Formu sıfırla
+    ['fBaslik','fAciklama','fKonum','fTelefon'].forEach(id => document.getElementById(id).value='');
+    document.getElementById('fKategori').selectedIndex = 0;
+    fotoInput.value = '';
+    document.getElementById('fotoPreview').innerHTML = '';
+  } catch(e){
+    showToast('Hata: ' + e.message, true);
+  } finally {
+    btn.disabled=false; btn.textContent='Paylaşımı Gönder ›'; btn.style.opacity='1';
+  }
 };
 
 window.handleFotoChange = input => {
@@ -686,8 +742,8 @@ window.handleFotoChange = input => {
 // ══════════════════════════════════════════
 // UI HELPERS
 // ══════════════════════════════════════════
-window.openShare     = () => document.getElementById('shareModal').classList.add('open');
-window.closeShare    = () => document.getElementById('shareModal').classList.remove('open');
+window.openShare     = () => { document.getElementById('shareModal').classList.add('open'); document.body.style.overflow='hidden'; };
+window.closeShare    = () => { document.getElementById('shareModal').classList.remove('open'); document.body.style.overflow=''; };
 window.openUserPanel = () => document.getElementById('userPanel').classList.add('open');
 window.closeUserPanel= () => document.getElementById('userPanel').classList.remove('open');
 window.openLogin     = (tab='giris') => { closeUserPanel(); switchTab(tab); document.getElementById('loginModal').classList.add('open'); };
@@ -1061,7 +1117,7 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
   <!-- ── HEADER (her sayfada görünür) ── -->
   <div class="app-header">
     <div class="ah-row">
-      <div class="burger"><span></span><span></span><span></span></div>
+      <div class="burger" onclick="openUserPanel()"><span></span><span></span><span></span></div>
       <div class="ah-brand">
         <div class="ah-name">Mutlular Haber</div>
         <div class="ah-sub">Mahallenin Sesi, Hepimizin Haberi</div>
@@ -1389,6 +1445,11 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
         <div class="ss-item" onclick="closeUserPanel();goPage('profile')">
           <div class="ss-ico" style="background:#E8F5E9;">👤</div>
           <div><div class="ss-it">Profilim</div><div class="ss-is">İlanlarım &amp; Ayarlar</div></div>
+          <div class="ss-arr">›</div>
+        </div>
+        <div class="ss-item" id="adminPanelLink" style="display:none;" onclick="window.open('mutlular-admin.html','_blank')">
+          <div class="ss-ico" style="background:#FCE4EC;">👑</div>
+          <div><div class="ss-it">Yönetim Paneli</div><div class="ss-is">Haber &amp; ilan yönet</div></div>
           <div class="ss-arr">›</div>
         </div>
       </div>
