@@ -99,23 +99,20 @@ window.doLogout = async () => {
 // DASHBOARD STATS
 // ══════════════════════════════════════════
 async function loadDashboard() {
-  // Bekleyen ilanlar
-  const bekleyenSnap = await getDocs(query(collection(db,'ilanlar'), where('status','==','pending')));
-  document.getElementById('statBekleyen').textContent = bekleyenSnap.size;
-
-  // Onaylanan ilanlar
-  const onaySnap = await getDocs(query(collection(db,'ilanlar'), where('status','==','approved')));
-  document.getElementById('statOnaylanan').textContent = onaySnap.size;
-
-  // Haberler
-  const haberSnap = await getDocs(collection(db,'haberler'));
-  document.getElementById('statHaber').textContent = haberSnap.size;
-
-  // Esnaf
-  const esnafSnap = await getDocs(collection(db,'esnaf'));
-  document.getElementById('statEsnaf').textContent = esnafSnap.size;
-
-  // Son 5 bekleyen ilan
+  try {
+    const [bekleyenSnap, onaySnap, haberSnap, esnafSnap] = await Promise.all([
+      getDocs(query(collection(db,'ilanlar'), where('status','==','pending'))),
+      getDocs(query(collection(db,'ilanlar'), where('status','==','approved'))),
+      getDocs(collection(db,'haberler')),
+      getDocs(collection(db,'esnaf'))
+    ]);
+    document.getElementById('statBekleyen').textContent  = bekleyenSnap.size;
+    document.getElementById('statOnaylanan').textContent = onaySnap.size;
+    document.getElementById('statHaber').textContent     = haberSnap.size;
+    document.getElementById('statEsnaf').textContent     = esnafSnap.size;
+  } catch(e) {
+    console.warn('Dashboard istatistik hatası:', e.message);
+  }
   loadBekleyenOnizleme();
 }
 
@@ -236,16 +233,19 @@ window.loadHaberler = () => {
 function buildHaberRow(id, data) {
   const div = document.createElement('div');
   div.className = 'list-row';
+  const thumb = data.imageURL
+    ? `<img src="${data.imageURL}" class="row-thumb" alt="" onerror="this.style.display='none'">`
+    : `<div class="row-thumb-placeholder">📰</div>`;
   div.innerHTML = `
     <div class="row-main">
-      <div class="row-thumb-placeholder">📰</div>
+      ${thumb}
       <div class="row-body">
         <div class="row-top">
           ${data.sonDakika ? '<span class="tag tag-acil">SON DAKİKA</span>' : '<span class="tag tag-duyuru">HABER</span>'}
           <span class="row-meta" style="margin-left:auto;">✍️ ${esc(data.authorName||'—')} · ${timeAgo(data.createdAt?.toDate())}</span>
         </div>
         <div class="row-title">${esc(data.baslik)}</div>
-        <div class="row-excerpt">${esc((data.ozet||'').substring(0,100))}…</div>
+        <div class="row-excerpt">${esc((data.ozet||'').substring(0,120))}</div>
       </div>
     </div>
     <div class="row-actions">
@@ -266,13 +266,25 @@ window.haberDuzenle = async id => {
   if (!snap.exists()) return;
   const data = snap.data();
   document.getElementById('hId').value        = id;
-  document.getElementById('hBaslik').value    = data.baslik  || '';
-  document.getElementById('hOzet').value      = data.ozet    || '';
-  document.getElementById('hIcerik').value    = data.icerik  || '';
-  document.getElementById('hKonum').value     = data.konum   || '';
+  document.getElementById('hBaslik').value    = data.baslik    || '';
+  document.getElementById('hOzet').value      = data.ozet      || '';
+  document.getElementById('hIcerik').value    = data.icerik    || '';
+  document.getElementById('hKonum').value     = data.konum     || '';
   document.getElementById('hSonDakika').checked = data.sonDakika || false;
-  document.getElementById('hEmoji').value     = data.emoji   || '📰';
+  document.getElementById('hEmoji').value     = data.emoji     || '📰';
+  // Mevcut fotoğrafı önizlemede göster
+  const prev = document.getElementById('hFotoPreview');
+  if (data.imageURL) {
+    prev.innerHTML = `
+      <div style="position:relative;display:inline-block;margin-top:8px;">
+        <img src="${data.imageURL}" style="width:100%;border-radius:10px;max-height:200px;object-fit:cover;">
+        <div style="font-size:11px;color:#6B7280;margin-top:4px;">Mevcut fotoğraf · Değiştirmek için yukarıdan yeni seçin</div>
+      </div>`;
+  } else {
+    prev.innerHTML = '';
+  }
   document.getElementById('haberFormTitle').textContent = '✏️ Haberi Düzenle';
+  document.getElementById('hKaydetBtn').textContent = '💾 Güncelle';
   document.getElementById('haberForm').scrollIntoView({behavior:'smooth'});
 };
 
@@ -286,31 +298,54 @@ window.haberKaydet = async () => {
   const emoji    = document.getElementById('hEmoji').value.trim() || '📰';
   const fotoInput= document.getElementById('hFoto');
 
-  if (!baslik || !ozet) { showToast('Başlık ve özet zorunludur.', true); return; }
+  if (!baslik) { showToast('Başlık zorunludur.', true); return; }
+  if (!ozet)   { showToast('Özet zorunludur.', true); return; }
 
-  setBtnLoad('hKaydetBtn', true, 'Kaydediliyor…');
+  const btn = document.getElementById('hKaydetBtn');
+  btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…'; btn.style.opacity = '0.65';
 
   try {
     let imageURL = null;
 
-    // Cloudinary fotoğraf yükleme
     if (fotoInput.files[0]) {
+      const file = fotoInput.files[0];
+      if (file.size > 20 * 1024 * 1024) {
+        showToast('Fotoğraf 20 MB\'dan büyük olamaz.', true);
+        btn.disabled=false; btn.textContent='🚀 Yayınla'; btn.style.opacity='1';
+        return;
+      }
+      btn.textContent = '📤 Fotoğraf yükleniyor…';
       const fd = new FormData();
-      fd.append('file', fotoInput.files[0]);
+      fd.append('file', file);
       fd.append('upload_preset', CLD_PRESET);
       fd.append('folder', 'mutlular_haber/haberler');
-      document.getElementById('hKaydetBtn').textContent = 'Fotoğraf yükleniyor…';
-      const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`, {method:'POST', body:fd});
-      const data = await res.json();
-      imageURL   = data.secure_url;
+      let res;
+      try {
+        res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`, {method:'POST', body:fd});
+      } catch(netErr) {
+        throw new Error('Fotoğraf yüklenemedi. İnternet bağlantınızı kontrol edin.');
+      }
+      const cldData = await res.json();
+      if (!cldData.secure_url) {
+        throw new Error('Fotoğraf yükleme hatası: ' + (cldData.error?.message || 'Cloudinary preset kontrol edin'));
+      }
+      imageURL = cldData.secure_url;
+      btn.textContent = '💾 Firestore\'a kaydediliyor…';
     }
 
     const payload = {
-      baslik, ozet, icerik, konum, sonDakika, emoji,
+      baslik,
+      ozet,
+      icerik: icerik || '',
+      konum: konum || '',
+      sonDakika,
+      emoji,
       authorName: currentUser.displayName || currentUser.email,
       authorId:   currentUser.uid,
-      ...(imageURL && { imageURL })
     };
+
+    // Yeni fotoğraf yüklendiyse güncelle; yoksa mevcut URL korunsun
+    if (imageURL) payload.imageURL = imageURL;
 
     if (id) {
       await updateDoc(doc(db,'haberler',id), { ...payload, updatedAt: serverTimestamp() });
@@ -320,13 +355,12 @@ window.haberKaydet = async () => {
       showToast('Haber yayınlandı ✅');
     }
 
-    // Formu sıfırla
     haberFormSifirla();
     navigateTo('haberler');
   } catch(e) {
     showToast('Hata: ' + e.message, true);
   } finally {
-    setBtnLoad('hKaydetBtn', false, '🚀 Yayınla');
+    btn.disabled=false; btn.textContent='🚀 Yayınla'; btn.style.opacity='1';
   }
 };
 
@@ -337,6 +371,7 @@ window.haberFormSifirla = () => {
   document.getElementById('hFoto').value = '';
   document.getElementById('hFotoPreview').innerHTML = '';
   document.getElementById('haberFormTitle').textContent = '➕ Yeni Haber Ekle';
+  document.getElementById('hKaydetBtn').textContent = '🚀 Yayınla';
 };
 
 // ══════════════════════════════════════════
@@ -541,7 +576,7 @@ function setBtnLoad(id, loading, label) {
   const btn = document.getElementById(id);
   if (!btn) return;
   btn.disabled = loading;
-  if (label) btn.textContent = loading ? '⏳ ' : '' + (label || '');
+  btn.textContent = loading ? ('⏳ ' + (label || '')) : (label || '');
   btn.style.opacity = loading ? '0.65' : '1';
 }
 
