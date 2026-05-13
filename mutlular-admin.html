@@ -221,6 +221,25 @@ window.ilanSil = async id => {
 };
 
 // ══════════════════════════════════════════
+// CLOUDINARY UPLOAD HELPER
+// ══════════════════════════════════════════
+async function uploadToCloudinary(file, folder) {
+  const isVideo = file.type.startsWith('video/');
+  const endpoint = `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/${isVideo ? 'video' : 'image'}/upload`;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLD_PRESET);
+  fd.append('folder', folder);
+  const res = await fetch(endpoint, { method: 'POST', body: fd });
+  const data = await res.json();
+  if (data.secure_url) return data.secure_url;
+  const errMsg = data.error?.message || JSON.stringify(data).substring(0,200);
+  console.error('Cloudinary hata:', data);
+  if (errMsg.includes('preset')) throw new Error('Cloudinary preset hatası: "' + CLD_PRESET + '" unsigned preset bulunamadı.');
+  throw new Error('Cloudinary: ' + errMsg);
+}
+
+// ══════════════════════════════════════════
 // HABER YÖNETİMİ
 // ══════════════════════════════════════════
 let haberUnsubscribe = null;
@@ -299,7 +318,7 @@ window.haberDuzenle = async id => {
 };
 
 window.haberKaydet = async () => {
-  const id       = document.getElementById('hId').value;
+  const id       = document.getElementById('hId').value.trim();
   const baslik   = document.getElementById('hBaslik').value.trim();
   const ozet     = document.getElementById('hOzet').value.trim();
   const icerik   = document.getElementById('hIcerik').value.trim();
@@ -317,55 +336,40 @@ window.haberKaydet = async () => {
   try {
     let imageURL = null;
 
-    if (fotoInput.files[0]) {
+    if (fotoInput.files && fotoInput.files[0]) {
       const file = fotoInput.files[0];
-      if (file.size > 20 * 1024 * 1024) {
-        showToast('Fotoğraf 20 MB\'dan büyük olamaz.', true);
-        btn.disabled=false; btn.textContent='🚀 Yayınla'; btn.style.opacity='1';
-        return;
-      }
+      if (file.size > 20*1024*1024) { showToast('Fotoğraf 20 MB\'dan büyük olamaz.', true); return; }
       btn.textContent = '📤 Fotoğraf yükleniyor…';
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('upload_preset', CLD_PRESET);
-      fd.append('folder', 'mutlular_haber/haberler');
-      let res;
-      try {
-        res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`, {method:'POST', body:fd});
-      } catch(netErr) {
-        throw new Error('Fotoğraf yüklenemedi. İnternet bağlantınızı kontrol edin.');
-      }
-      const cldData = await res.json();
-      if (!cldData.secure_url) {
-        throw new Error('Fotoğraf yükleme hatası: ' + (cldData.error?.message || 'Cloudinary preset kontrol edin'));
-      }
-      imageURL = cldData.secure_url;
-      btn.textContent = '💾 Firestore\'a kaydediliyor…';
+      imageURL = await uploadToCloudinary(file, 'mutlular_haber/haberler');
+      btn.textContent = '💾 Kaydediliyor…';
     }
 
     const payload = {
-      baslik:     String(baslik   || ''),
-      ozet:       String(ozet     || ''),
-      icerik:     String(icerik   || ''),
-      konum:      String(konum    || ''),
-      sonDakika:  Boolean(sonDakika),
-      emoji:      String(emoji    || '📰'),
-      authorName: String(currentUser.displayName || currentUser.email || 'Admin'),
-      authorId:   String(currentUser.uid),
+      baslik:     baslik,
+      ozet:       ozet,
+      icerik:     icerik || '',
+      konum:      konum  || '',
+      sonDakika:  sonDakika,
+      emoji:      emoji,
+      authorName: currentUser.displayName || currentUser.email || 'Admin',
+      authorId:   currentUser.uid
     };
-    if (imageURL && typeof imageURL === 'string') payload.imageURL = imageURL;
+    if (imageURL) payload.imageURL = imageURL;
 
     if (id) {
-      await updateDoc(doc(db,'haberler',id), { ...payload, updatedAt: serverTimestamp() });
+      payload.updatedAt = serverTimestamp();
+      await updateDoc(doc(db,'haberler', id), payload);
       showToast('Haber güncellendi ✅');
     } else {
-      await addDoc(collection(db,'haberler'), { ...payload, createdAt: serverTimestamp() });
+      payload.createdAt = serverTimestamp();
+      await addDoc(collection(db,'haberler'), payload);
       showToast('Haber yayınlandı ✅');
     }
 
     haberFormSifirla();
     navigateTo('haberler');
   } catch(e) {
+    console.error('haberKaydet hatası:', e);
     showToast('Hata: ' + e.message, true);
   } finally {
     btn.disabled=false; btn.textContent='🚀 Yayınla'; btn.style.opacity='1';
