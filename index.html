@@ -879,37 +879,22 @@ window.kampanyaGonder = async () => {
   try {
     let imageURL = null;
     const fotoInput = document.getElementById('epKampanyaFoto');
-    if(fotoInput && fotoInput.files[0]){
+    if(fotoInput && fotoInput.files && fotoInput.files[0]){
       const file = fotoInput.files[0];
-      if(file.size > 10 * 1024 * 1024){
-        showToast('Fotoğraf 10 MB\'dan büyük olamaz.', true);
-        btn.disabled=false; btn.textContent='📢 Kampanyayı Gönder'; btn.style.opacity='1';
-        return;
-      }
-      btn.textContent = '📤 Fotoğraf yükleniyor…';
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('upload_preset', CLD_PRESET);
-      fd.append('folder', 'mutlular_haber/kampanyalar');
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`,
-        {method:'POST', body:fd}
-      );
-      if(!res.ok) throw new Error('Fotoğraf yüklenemedi.');
-      const cldData = await res.json();
-      if(!cldData.secure_url) throw new Error(cldData.error?.message || 'Cloudinary hatası');
-      imageURL = cldData.secure_url;
+      if(file.size > 10*1024*1024){ showToast('Fotoğraf 10 MB\'dan büyük olamaz.', true); return; }
+      btn.textContent = '📤 Yükleniyor…';
+      imageURL = await uploadToCloudinary(file, 'mutlular_haber/kampanyalar');
     }
 
     const kampanyaPayload = {
-      esnafId:   String(_currentEsnafData.id  || ''),
-      esnafAdi:  String(_currentEsnafData.isyeri || ''),
-      uid:       String(currentUser.uid),
-      mesaj:     String(mesaj),
+      esnafId:   _currentEsnafData.id  || '',
+      esnafAdi:  _currentEsnafData.isyeri || '',
+      uid:       currentUser.uid,
+      mesaj:     mesaj,
       status:    'pending',
       createdAt: serverTimestamp()
     };
-    if(imageURL && typeof imageURL === 'string') kampanyaPayload.imageURL = imageURL;
+    if(imageURL) kampanyaPayload.imageURL = imageURL;
 
     await addDoc(collection(db,'esnaf_kampanyalar'), kampanyaPayload);
     showToast('Kampanya gönderildi! Admin onayı bekleniyor. 📢');
@@ -936,85 +921,97 @@ window.kampanyaSil = async (id) => {
 // İLAN GÖNDER
 // ══════════════════════════════════════════
 window.submitIlan = async () => {
-  if(!currentUser){showToast('İlan için giriş yapmalısınız.',true);return;}
-  const kategori = document.getElementById('fKategori').value;
-  const baslik   = document.getElementById('fBaslik').value.trim();
-  const aciklama = document.getElementById('fAciklama').value.trim();
-  const konum    = document.getElementById('fKonum').value.trim();
-  const telefon  = document.getElementById('fTelefon').value.trim();
-  const fotoInput= document.getElementById('fFoto');
-  if(!kategori){showToast('Lütfen bir kategori seçin.',true);return;}
-  if(!baslik){showToast('Başlık zorunludur.',true);return;}
+  if(!currentUser){ showToast('İlan için giriş yapmalısınız.',true); return; }
+  const kategori  = document.getElementById('fKategori').value;
+  const baslik    = document.getElementById('fBaslik').value.trim();
+  const aciklama  = document.getElementById('fAciklama').value.trim();
+  const konum     = document.getElementById('fKonum').value.trim();
+  const telefon   = document.getElementById('fTelefon').value.trim();
+  const fotoInput = document.getElementById('fFoto');
+
+  if(!kategori){ showToast('Lütfen bir kategori seçin.',true); return; }
+  if(!baslik){   showToast('Başlık zorunludur.',true); return; }
+
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '⏳ Gönderiliyor…'; btn.style.opacity='0.7';
+
   try {
     let imageURL = null;
-    if(fotoInput.files[0]){
+    if(fotoInput.files && fotoInput.files[0]){
       const file = fotoInput.files[0];
-      if(file.size > 20 * 1024 * 1024){
-        showToast('Dosya 20 MB\'dan büyük olamaz.',true);
-        btn.disabled=false; btn.textContent='Paylaşımı Gönder ›'; btn.style.opacity='1';
-        return;
-      }
-      btn.textContent = '📤 Dosya yükleniyor…';
-      // Dosya tipine göre doğru Cloudinary endpoint'i seç
-      const isVideo = file.type.startsWith('video/');
-      const resourceType = isVideo ? 'video' : 'image';
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('upload_preset', CLD_PRESET);
-      fd.append('folder', 'mutlular_haber/ilanlar');
-      let res;
-      try {
-        res = await fetch(
-          `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/${resourceType}/upload`,
-          {method:'POST', body:fd}
-        );
-      } catch(netErr) {
-        throw new Error('Dosya yüklenemedi. İnternet bağlantınızı kontrol edin.');
-      }
-      if(!res.ok){
-        throw new Error(`Sunucu hatası: ${res.status}. Cloudinary preset'i kontrol edin.`);
-      }
-      const cldData = await res.json();
-      if(!cldData.secure_url){
-        const msg = cldData.error?.message || JSON.stringify(cldData);
-        throw new Error('Yükleme hatası: ' + msg);
-      }
-      imageURL = cldData.secure_url;
+      if(file.size > 20*1024*1024){ showToast('Dosya 20 MB\'dan büyük olamaz.',true); return; }
+      btn.textContent = '📤 Yükleniyor…';
+      imageURL = await uploadToCloudinary(file, 'mutlular_haber/ilanlar');
       btn.textContent = '💾 Kaydediliyor…';
     }
-    // Firestore undefined kabul etmez - tüm alanları güvenli hale getir
+
     const payload = {
-      kategori:   String(kategori || ''),
-      baslik:     String(baslik   || ''),
-      aciklama:   String(aciklama || ''),
-      konum:      String(konum    || ''),
-      telefon:    String(telefon  || ''),
+      kategori, baslik,
+      aciklama:   aciklama || '',
+      konum:      konum    || '',
+      telefon:    telefon  || '',
       status:     'pending',
-      uid:        String(currentUser.uid),
-      authorName: String(currentUser.displayName || currentUser.email || 'Anonim'),
+      uid:        currentUser.uid,
+      authorName: currentUser.displayName || currentUser.email || 'Kullanıcı',
       createdAt:  serverTimestamp()
     };
-    // imageURL sadece string ise ekle, null/undefined ise hiç koyma
-    if(imageURL && typeof imageURL === 'string') payload.imageURL = imageURL;
+    if(imageURL) payload.imageURL = imageURL;
 
     await addDoc(collection(db,'ilanlar'), payload);
     closeShare();
     showToast('İlanınız alındı! Editör onayından sonra yayınlanacak ✅');
-    ['fBaslik','fAciklama','fKonum','fTelefon'].forEach(id => document.getElementById(id).value='');
+    ['fBaslik','fAciklama','fKonum','fTelefon'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
     document.getElementById('fKategori').selectedIndex = 0;
     fotoInput.value = '';
     document.getElementById('fotoPreview').innerHTML = '';
   } catch(e){
-    showToast('Hata: ' + e.message, true);
-    console.error('submitIlan hatası:', e);
+    console.error('submitIlan:', e);
+    showToast(e.message, true);
   } finally {
     btn.disabled=false; btn.textContent='Paylaşımı Gönder ›'; btn.style.opacity='1';
   }
 };
 
-window.handleFotoChange = input => {
+// ══════════════════════════════════════════
+// CLOUDINARY UPLOAD HELPER
+// ══════════════════════════════════════════
+async function uploadToCloudinary(file, folder) {
+  const isVideo = file.type.startsWith('video/');
+  const endpoint = `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/${isVideo ? 'video' : 'image'}/upload`;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLD_PRESET);
+  fd.append('folder', folder);
+
+  let res;
+  try {
+    res = await fetch(endpoint, { method: 'POST', body: fd });
+  } catch(netErr) {
+    throw new Error('Ağ hatası: ' + netErr.message);
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('Cloudinary yanıt okunamadı (HTTP ' + res.status + ')');
+  }
+
+  if (data.secure_url) return data.secure_url;
+
+  // Hata detayını göster
+  const errMsg = data.error?.message || JSON.stringify(data).substring(0, 200);
+  console.error('Cloudinary hata:', data);
+
+  // Yaygın hataları Türkçeleştir
+  if (errMsg.includes('Upload preset') || errMsg.includes('preset')) {
+    throw new Error('Cloudinary preset hatası: "' + CLD_PRESET + '" unsigned preset bulunamadı. Cloudinary → Settings → Upload → Upload presets bölümünden kontrol edin.');
+  }
+  if (errMsg.includes('Invalid') && errMsg.includes('cloud')) {
+    throw new Error('Cloudinary cloud name hatalı: "' + CLD_CLOUD + '"');
+  }
+  throw new Error('Cloudinary: ' + errMsg);
+}
   const p=document.getElementById('fotoPreview');
   p.innerHTML='';
   if(input.files[0]){
