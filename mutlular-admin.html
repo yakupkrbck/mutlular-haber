@@ -2,22 +2,28 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mutlular Haber — Yönetim Paneli</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Mutlular Haber</title>
+<meta name="description" content="Mahallenin sesi, hepimizin haberi">
+<meta name="theme-color" content="#D32F2F">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <script type="module">
-import { initializeApp }                        from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword,
-         signOut, onAuthStateChanged }           from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, addDoc,
-         getDocs, onSnapshot, query, orderBy,
-         limit, where, serverTimestamp,
-         doc, updateDoc, deleteDoc, getDoc,
-         setDoc }                                from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeApp }           from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+         signOut, onAuthStateChanged, GoogleAuthProvider,
+         signInWithPopup, updateProfile }
+                                   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy,
+         limit, where, serverTimestamp, doc, updateDoc, getDoc,
+         getDocs, deleteDoc }      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAnalytics }            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
 
-// ── FIREBASE CONFIG ──
+// ── CONFIG ──
 const firebaseConfig = {
   apiKey:            "AIzaSyAkEPGBWken51nJGcS9-_ZS1QU10J8DCm8",
   authDomain:        "mutlular-haber.firebaseapp.com",
@@ -27,1299 +33,1900 @@ const firebaseConfig = {
   appId:             "1:407814803681:web:c41807849172dd22bbe7a0",
   measurementId:     "G-ZH17J0CMLG"
 };
-
-// ── CLOUDINARY ──
 const CLD_CLOUD  = "dn2wanvcr";
 const CLD_PRESET = "mutlular_haber";
 
-const fbApp = initializeApp(firebaseConfig);
-const auth  = getAuth(fbApp);
-const db    = getFirestore(fbApp);
+const fbApp     = initializeApp(firebaseConfig);
+const analytics = getAnalytics(fbApp);
+const auth      = getAuth(fbApp);
+const db        = getFirestore(fbApp);
+const gProvider = new GoogleAuthProvider();
 
 // ══════════════════════════════════════════
-// AUTH STATE — rol kontrolü
+// STATE
 // ══════════════════════════════════════════
 let currentUser = null;
-let currentRole = null; // 'admin' | 'editor'
+let currentRole = null;
+let heroSlides  = [];
+let heroIdx     = 0;
 
+// ══════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════
 onAuthStateChanged(auth, async user => {
-  if (!user) { showScreen('login'); return; }
-
-  // Firestore'dan rolü çek
-  const snap = await getDoc(doc(db, 'admins', user.uid));
-  if (!snap.exists()) {
-    await signOut(auth);
-    showToast('Bu hesabın panel erişimi yok.', true);
-    showScreen('login');
-    return;
-  }
-
   currentUser = user;
-  currentRole = snap.data().role; // 'admin' veya 'editor'
-
-  // UI güncelle
-  document.getElementById('uName').textContent  = user.displayName || user.email;
-  document.getElementById('uRole').textContent  = currentRole === 'admin' ? '👑 Admin' : '📰 Editör';
-  document.getElementById('uEmail').textContent = user.email;
-
-  // Admin'e özel menüleri göster/gizle
-  document.querySelectorAll('.admin-only').forEach(el => {
-    el.style.display = currentRole === 'admin' ? 'flex' : 'none';
-  });
-
-  showScreen('panel');
-  loadDashboard();
-  navigateTo('dashboard');
+  if (user) {
+    document.getElementById('avatarBtn').textContent = '😊';
+    document.getElementById('ssAva').textContent  = '😊';
+    document.getElementById('ssName').textContent = user.displayName || user.email;
+    document.getElementById('ssBadge').textContent= '✅ Giriş Yapıldı';
+    document.getElementById('panelLogin').style.display  = 'none';
+    document.getElementById('panelLogout').style.display = 'flex';
+    document.getElementById('panelLogout2').style.display= 'block';
+    // Admin/editör rol kontrolü
+    const adminSnap = await getDoc(doc(db,'admins', user.uid));
+    if (adminSnap.exists()) {
+      currentRole = adminSnap.data().role;
+      document.getElementById('adminPanelLink').style.display = 'flex';
+      document.getElementById('adminHeaderLink').style.display = 'flex';
+    }
+    // Esnaf başvuru kontrolü
+    checkEsnafDurumu(user.uid);
+    loadUserStats(user.uid);
+  } else {
+    if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
+    currentUser = null; currentRole = null;
+    document.getElementById('avatarBtn').textContent = '👤';
+    document.getElementById('ssAva').textContent     = '👤';
+    document.getElementById('ssName').textContent    = 'Giriş Yapın';
+    document.getElementById('ssBadge').textContent   = '🏘️ Mutlular Mahallesi';
+    document.getElementById('panelLogin').style.display  = 'flex';
+    document.getElementById('panelLogout').style.display = 'none';
+    document.getElementById('panelLogout2').style.display= 'none';
+    document.getElementById('adminPanelLink').style.display = 'none';
+    document.getElementById('adminHeaderLink').style.display = 'none';
+    document.getElementById('esnafPanelLink').style.display = 'none';
+    ['ssP','ssG','ssR'].forEach(id => document.getElementById(id).textContent = '—');
+  }
 });
 
-// ══════════════════════════════════════════
-// LOGIN
-// ══════════════════════════════════════════
-window.doAdminLogin = async () => {
-  const email = document.getElementById('lEmail').value.trim();
-  const pass  = document.getElementById('lPass').value;
-  if (!email || !pass) { showToast('E-posta ve şifre girin.', true); return; }
-  setBtnLoad('lBtn', true);
+async function loadUserStats(uid) {
+  const q = query(collection(db,'ilanlar'), where('uid','==',uid));
+  const snap = await getDocs(q);
+  document.getElementById('ssP').textContent = snap.size;
+  document.getElementById('ssG').textContent = '4.8';
+  document.getElementById('ssR').textContent = '⭐';
+}
+
+window.doLogin = async () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value;
+  if (!email||!pass){showToast('E-posta ve şifre girin.',true);return;}
+  setLoad('loginBtn',true);
+  try { await signInWithEmailAndPassword(auth,email,pass); closeLogin(); showToast('Hoş geldiniz! 👋'); }
+  catch(e){ showToast(authErr(e.code),true); }
+  finally { setLoad('loginBtn',false); }
+};
+
+let _hesapTuru = 'sakin';
+window.selectHesapTuru = (tur) => {
+  _hesapTuru = tur;
+  document.getElementById('ht-sakin').classList.toggle('active', tur === 'sakin');
+  document.getElementById('ht-esnaf').classList.toggle('active', tur === 'esnaf');
+  document.getElementById('esnafEkAlanlar').style.display = tur === 'esnaf' ? 'block' : 'none';
+};
+
+window.doRegister = async () => {
+  const name  = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass  = document.getElementById('regPass').value;
+  if (!name || !email || !pass) { showToast('Tüm alanları doldurun.', true); return; }
+  if (pass.length < 6) { showToast('Şifre en az 6 karakter olmalı.', true); return; }
+
+  if (_hesapTuru === 'esnaf') {
+    const isyeri = document.getElementById('regIsyeri').value.trim();
+    if (!isyeri) { showToast('İşyeri adı zorunludur.', true); return; }
+  }
+
+  setLoad('regBtn', true);
   try {
-    await signInWithEmailAndPassword(auth, email, pass);
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    await updateProfile(cred.user, { displayName: name });
+
+    if (_hesapTuru === 'esnaf') {
+      const isyeri   = document.getElementById('regIsyeri').value.trim();
+      const kategori = document.getElementById('regKategori').value;
+      const telefon  = document.getElementById('regTelefon').value.trim();
+      const adres    = document.getElementById('regAdres').value.trim();
+      // users koleksiyonuna kaydet
+      await addDoc(collection(db, 'users'), {
+        uid: cred.user.uid, name, email, role: 'esnaf', puan: 0, createdAt: serverTimestamp()
+      });
+      // esnaf_basvurular koleksiyonuna düş - admin onaylayacak
+      await addDoc(collection(db, 'esnaf_basvurular'), {
+        uid: cred.user.uid, name, email, isyeri, kategori,
+        telefon: telefon || '', adres: adres || '',
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+      closeLogin();
+      showToast('Esnaf başvurunuz alındı! Admin onayından sonra aktif olur. 🏪');
+    } else {
+      await addDoc(collection(db, 'users'), {
+        uid: cred.user.uid, name, email, role: 'user', puan: 0, createdAt: serverTimestamp()
+      });
+      closeLogin();
+      showToast('Kayıt başarılı! 🎉');
+    }
   } catch(e) {
     showToast(authErr(e.code), true);
   } finally {
-    setBtnLoad('lBtn', false);
+    setLoad('regBtn', false);
   }
+};
+
+window.doGoogleLogin = async () => {
+  try { await signInWithPopup(auth,gProvider); closeLogin(); showToast('Google ile giriş yapıldı! 🎉'); }
+  catch(e){ showToast('Google girişi başarısız.',true); }
 };
 
 window.doLogout = async () => {
   await signOut(auth);
-  currentUser = null; currentRole = null;
-  showScreen('login');
+  closeUserPanel();
+  showToast('Çıkış yapıldı.');
 };
 
 // ══════════════════════════════════════════
-// DASHBOARD STATS
+// SAYFA ROUTER
 // ══════════════════════════════════════════
-async function loadDashboard() {
-  try {
-    const [bekleyenSnap, onaySnap, haberSnap, esnafSnap, basvuruSnap, kampanyaSnap] = await Promise.all([
-      getDocs(query(collection(db,'ilanlar'), where('status','==','pending'))),
-      getDocs(query(collection(db,'ilanlar'), where('status','==','approved'))),
-      getDocs(collection(db,'haberler')),
-      getDocs(collection(db,'esnaf')),
-      getDocs(query(collection(db,'esnaf_basvurular'), where('status','==','pending'))),
-      getDocs(query(collection(db,'esnaf_kampanyalar'), where('status','==','pending')))
-    ]);
-    document.getElementById('statBekleyen').textContent  = bekleyenSnap.size;
-    document.getElementById('statOnaylanan').textContent = onaySnap.size;
-    document.getElementById('statHaber').textContent     = haberSnap.size;
-    document.getElementById('statEsnaf').textContent     = esnafSnap.size;
-    document.getElementById('statEsnafBasvuru').textContent  = basvuruSnap.size;
-    document.getElementById('statKampanya').textContent      = kampanyaSnap.size;
-  } catch(e) {
-    console.warn('Dashboard istatistik hatası:', e.message);
-  }
-  loadBekleyenOnizleme();
-}
-
-// ══════════════════════════════════════════
-// İLAN YÖNETİMİ
-// ══════════════════════════════════════════
-let ilanUnsubscribe = null;
-
-window.loadIlanlar = (filtre = 'pending') => {
-  if (ilanUnsubscribe) ilanUnsubscribe();
-  document.querySelectorAll('.filtre-btn').forEach(b => b.classList.toggle('active', b.dataset.f === filtre));
-  const list = document.getElementById('ilanList');
-  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
-
-  const q = filtre === 'all'
-    ? query(collection(db,'ilanlar'), orderBy('createdAt','desc'), limit(50))
-    : query(collection(db,'ilanlar'), where('status','==',filtre), orderBy('createdAt','desc'));
-
-  ilanUnsubscribe = onSnapshot(q, snap => {
-    list.innerHTML = '';
-    if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
-    snap.forEach(d => list.appendChild(buildIlanRow(d.id, d.data())));
+window.goPage = (page, data={}) => {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('scr-'+page)?.classList.add('active');
+  // nav highlight
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.classList.toggle('active', n.dataset.page===page);
+    const lbl=n.querySelector('.nav-lbl');
+    if(lbl) lbl.style.color = n.dataset.page===page?'#D32F2F':'';
   });
+  window.scrollTo(0,0);
+  if (page==='home')         { /* already loaded */ }
+  if (page==='search')       loadSearch('');
+  if (page==='notifications') loadNotifications();
+  if (page==='profile')      loadProfile();
+  if (page==='haber')        renderHaberDetay(data);
+  if (page==='vefat')        loadVefatlar();
+  if (page==='eczane')       loadEczaneler();
+  if (page==='kursus')       loadKursus();
 };
 
-function loadBekleyenOnizleme() {
-  const q = query(collection(db,'ilanlar'), where('status','==','pending'), orderBy('createdAt','desc'), limit(5));
+// ══════════════════════════════════════════
+// HOME — PANO
+// ══════════════════════════════════════════
+function loadPano() {
+  const q = query(collection(db,'ilanlar'), where('status','==','approved'), orderBy('createdAt','desc'), limit(8));
   onSnapshot(q, snap => {
-    const list = document.getElementById('dashBekleyen');
-    list.innerHTML = '';
-    if (snap.empty) { list.innerHTML = '<div class="empty-state" style="padding:12px;">✅ Bekleyen ilan yok</div>'; return; }
-    snap.forEach(d => {
-      const data = d.data();
-      const row  = document.createElement('div');
-      row.className = 'dash-item';
-      row.innerHTML = `
-        <div class="di-info">
-          <span class="tag tag-${data.kategori}">${tagLabel(data.kategori)}</span>
-          <span class="di-title">${esc(data.baslik)}</span>
-          <span class="di-meta">${data.authorName||''} · ${timeAgo(data.createdAt?.toDate())}</span>
-        </div>
-        <div class="di-actions">
-          <button class="btn-onay" onclick="ilanOnayla('${d.id}')">✅ Onayla</button>
-          <button class="btn-red"  onclick="ilanReddet('${d.id}')">❌ Reddet</button>
-        </div>`;
-      list.appendChild(row);
+    const row = document.getElementById('panoRow');
+    row.innerHTML = '';
+    if (snap.empty) { row.innerHTML = '<div class="empty-card">📭 Henüz onaylanmış ilan yok</div>'; return; }
+    snap.forEach(d => row.appendChild(buildPanoCard(d.id, d.data())));
+  }, err => {
+    // Composite index henüz oluşturulmamışsa index linki console'a düşer,
+    // fallback olarak daha basit sorgu dene
+    console.warn('loadPano index hatası:', err.message);
+    const q2 = query(collection(db,'ilanlar'), orderBy('createdAt','desc'), limit(20));
+    onSnapshot(q2, snap => {
+      const row = document.getElementById('panoRow');
+      row.innerHTML = '';
+      const approved = snap.docs.filter(d => d.data().status === 'approved');
+      if (!approved.length) { row.innerHTML = '<div class="empty-card">📭 Henüz onaylanmış ilan yok</div>'; return; }
+      approved.slice(0,8).forEach(d => row.appendChild(buildPanoCard(d.id, d.data())));
     });
   });
 }
 
-function buildIlanRow(id, data) {
-  const div = document.createElement('div');
-  div.className = 'list-row';
-  div.innerHTML = `
-    <div class="row-main">
-      ${data.imageURL ? `<img src="${data.imageURL}" class="row-thumb" alt="">` : `<div class="row-thumb-placeholder">${tagEmoji(data.kategori)}</div>`}
-      <div class="row-body">
-        <div class="row-top">
-          <span class="tag tag-${data.kategori}">${tagLabel(data.kategori)}</span>
-          <span class="row-status status-${data.status}">${statusLabel(data.status)}</span>
-        </div>
-        <div class="row-title">${esc(data.baslik)}</div>
-        <div class="row-meta">
-          👤 ${esc(data.authorName||'Anonim')} &nbsp;·&nbsp;
-          📍 ${esc(data.konum||'—')} &nbsp;·&nbsp;
-          🕐 ${timeAgo(data.createdAt?.toDate())}
-          ${data.telefon ? `&nbsp;·&nbsp; 📞 ${esc(data.telefon)}` : ''}
-        </div>
-        ${data.aciklama ? `<div class="row-excerpt">${esc(data.aciklama.substring(0,120))}…</div>` : ''}
-      </div>
-    </div>
-    <div class="row-actions">
-      ${data.status === 'pending' ? `
-        <button class="btn-onay" onclick="ilanOnayla('${id}')">✅ Onayla</button>
-        <button class="btn-red"  onclick="ilanReddet('${id}')">❌ Reddet</button>` : ''}
-      ${data.status === 'approved' ? `<button class="btn-red" onclick="ilanReddet('${id}')">🚫 Kaldır</button>` : ''}
-      <button class="btn-del" onclick="ilanSil('${id}')">🗑️ Sil</button>
-    </div>`;
-  return div;
-}
+function buildPanoCard(id, data) {
+  const tagColors = {kayip:'#7B1FA2',acil:'#C62828',satilik:'#2E7D32',duyuru:'#1565C0',sorun:'#BF360C',vefat:'#37474F',foto:'#0277BD',etkinlik:'#558B2F'};
+  const tagLabels = {kayip:'KAYIP',acil:'ACİL',satilik:'SATILIK',duyuru:'DUYURU',sorun:'SORUN',vefat:'VEFAT',foto:'FOTO',etkinlik:'ETKİNLİK'};
+  const emojis    = {kayip:'🔍',acil:'🩸',satilik:'📦',duyuru:'📢',sorun:'🚧',vefat:'🕊️',foto:'📸',etkinlik:'📅'};
+  const ago       = timeAgo(data.createdAt?.toDate());
+  const div       = document.createElement('div');
+  div.className   = 'pano-card';
+  div.onclick     = () => openIlanDetay(id, data);
 
-window.ilanOnayla = async id => {
-  await updateDoc(doc(db,'ilanlar',id), { status:'approved', approvedAt: serverTimestamp(), approvedBy: currentUser.uid });
-  showToast('İlan onaylandı ✅');
-};
-
-window.ilanReddet = async id => {
-  await updateDoc(doc(db,'ilanlar',id), { status:'rejected', rejectedAt: serverTimestamp() });
-  showToast('İlan reddedildi.');
-};
-
-window.ilanSil = async id => {
-  if (!confirm('Bu ilanı kalıcı olarak silmek istiyor musunuz?')) return;
-  await deleteDoc(doc(db,'ilanlar',id));
-  showToast('İlan silindi.');
-};
-
-// ══════════════════════════════════════════
-// HABER YÖNETİMİ
-// ══════════════════════════════════════════
-let haberUnsubscribe = null;
-
-window.loadHaberler = () => {
-  if (haberUnsubscribe) haberUnsubscribe();
-  const list = document.getElementById('haberList');
-  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
-
-  haberUnsubscribe = onSnapshot(
-    query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(30)),
-    snap => {
-      list.innerHTML = '';
-      if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Henüz haber yok</div>'; return; }
-      snap.forEach(d => list.appendChild(buildHaberRow(d.id, d.data())));
-    }
-  );
-};
-
-function buildHaberRow(id, data) {
-  const div = document.createElement('div');
-  div.className = 'list-row';
-  const thumb = data.imageURL
-    ? `<img src="${data.imageURL}" class="row-thumb" alt="" onerror="this.style.display='none'">`
-    : `<div class="row-thumb-placeholder">📰</div>`;
-  div.innerHTML = `
-    <div class="row-main">
-      ${thumb}
-      <div class="row-body">
-        <div class="row-top">
-          ${data.sonDakika ? '<span class="tag tag-acil">SON DAKİKA</span>' : '<span class="tag tag-duyuru">HABER</span>'}
-          <span class="row-meta" style="margin-left:auto;">✍️ ${esc(data.authorName||'—')} · ${timeAgo(data.createdAt?.toDate())}</span>
-        </div>
-        <div class="row-title">${esc(data.baslik)}</div>
-        <div class="row-excerpt">${esc((data.ozet||'').substring(0,120))}</div>
-      </div>
-    </div>
-    <div class="row-actions">
-      <button class="btn-edit" onclick="haberDuzenle('${id}')">✏️ Düzenle</button>
-      <button class="btn-del"  onclick="haberSil('${id}')">🗑️ Sil</button>
-    </div>`;
-  return div;
-}
-
-window.haberSil = async id => {
-  if (!confirm('Bu haberi silmek istiyor musunuz?')) return;
-  await deleteDoc(doc(db,'haberler',id));
-  showToast('Haber silindi.');
-};
-
-window.haberDuzenle = async id => {
-  const snap = await getDoc(doc(db,'haberler',id));
-  if (!snap.exists()) return;
-  const data = snap.data();
-  document.getElementById('hId').value        = id;
-  document.getElementById('hBaslik').value    = data.baslik    || '';
-  document.getElementById('hOzet').value      = data.ozet      || '';
-  document.getElementById('hIcerik').value    = data.icerik    || '';
-  document.getElementById('hKonum').value     = data.konum     || '';
-  document.getElementById('hSonDakika').checked = data.sonDakika || false;
-  document.getElementById('hEmoji').value     = data.emoji     || '📰';
-  // Mevcut fotoğrafı önizlemede göster
-  const prev = document.getElementById('hFotoPreview');
   if (data.imageURL) {
-    prev.innerHTML = `
-      <div style="position:relative;display:inline-block;margin-top:8px;">
-        <img src="${data.imageURL}" style="width:100%;border-radius:10px;max-height:200px;object-fit:cover;">
-        <div style="font-size:11px;color:#6B7280;margin-top:4px;">Mevcut fotoğraf · Değiştirmek için yukarıdan yeni seçin</div>
+    div.innerHTML = `
+      <div class="pc-bg" style="background:url('${data.imageURL}') center/cover;"></div>
+      <div class="pc-ov"></div>
+      <div class="pc-tag-abs" style="background:${tagColors[data.kategori]||'#333'};">${tagLabels[data.kategori]||'İLAN'}</div>
+      <div class="pc-body-abs">
+        <div class="pc-title-w">${esc(data.baslik)}</div>
+        <div class="pc-time-w">${ago}</div>
       </div>`;
   } else {
-    prev.innerHTML = '';
+    div.classList.add('light-card');
+    div.innerHTML = `
+      <div class="pc-tag-top" style="background:${tagColors[data.kategori]||'#333'};">${tagLabels[data.kategori]||'İLAN'}</div>
+      <div class="lc-img">${emojis[data.kategori]||'📌'}</div>
+      <div class="pc-title-d">${esc(data.baslik)}</div>
+      <div class="pc-desc-d">${esc((data.aciklama||'').substring(0,50))}…</div>
+      <div class="pc-time-d">${ago}</div>`;
   }
-  document.getElementById('haberFormTitle').textContent = '✏️ Haberi Düzenle';
-  document.getElementById('hKaydetBtn').textContent = '💾 Güncelle';
-  document.getElementById('haberForm').scrollIntoView({behavior:'smooth'});
+  return div;
+}
+
+// ══════════════════════════════════════════
+// HOME — HABERLER (HERO)
+// ══════════════════════════════════════════
+function loadHaberler() {
+  const q = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(20));
+  onSnapshot(q, snap => {
+    if (snap.empty) return;
+    const all = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    // Önce son dakika, yoksa tüm haberler
+    const sonDakika = all.filter(d => d.sonDakika === true);
+    heroSlides = (sonDakika.length ? sonDakika : all).slice(0, 5);
+    if (heroSlides.length) { renderHero(heroSlides[0]); updateDots(heroSlides.length); }
+    // Arşiv için geri kalan haberler
+    loadArsiv(all);
+  }, err => {
+    console.warn('loadHaberler:', err.message);
+  });
+}
+
+function renderHero(data) {
+  document.getElementById('heroTitle').textContent   = data.baslik||'';
+  document.getElementById('heroExcerpt').textContent = data.ozet||'';
+  document.getElementById('heroTime').textContent    = timeAgo(data.createdAt?.toDate());
+  document.getElementById('heroNum').textContent     = `${heroIdx+1}/${heroSlides.length}`;
+  document.getElementById('heroCard').onclick        = () => goPage('haber',data);
+  if(data.imageURL){
+    document.getElementById('heroBg').style.backgroundImage = `url('${data.imageURL}')`;
+    document.getElementById('heroTruck').style.display = 'none';
+  } else {
+    document.getElementById('heroBg').style.backgroundImage = '';
+    document.getElementById('heroTruck').style.display = 'block';
+  }
+}
+
+function updateDots(count) {
+  const c = document.getElementById('sliderDots');
+  c.innerHTML = '';
+  for(let i=0;i<count;i++){
+    const s = document.createElement('span');
+    if(i===0) s.classList.add('active');
+    s.onclick=()=>{heroIdx=i;renderHero(heroSlides[i]);refreshDots();};
+    c.appendChild(s);
+  }
+}
+function refreshDots(){
+  document.querySelectorAll('#sliderDots span').forEach((s,i)=>s.classList.toggle('active',i===heroIdx));
+}
+setInterval(()=>{
+  if(!heroSlides.length)return;
+  heroIdx=(heroIdx+1)%heroSlides.length;
+  renderHero(heroSlides[heroIdx]); refreshDots();
+},4000);
+
+// ══════════════════════════════════════════
+// HABER DETAY
+// ══════════════════════════════════════════
+function renderHaberDetay(data) {
+  const s = document.getElementById('scr-haber');
+  s.innerHTML = `
+    <div class="detail-header">
+      <button class="back-btn" onclick="history.back()">← Geri</button>
+    </div>
+    ${data.imageURL?`<img src="${data.imageURL}" class="detail-hero-img" alt="">`:
+      `<div class="detail-hero-emoji">${data.emoji||'📰'}</div>`}
+    <div class="detail-body">
+      ${data.sonDakika?'<div class="sd-pill" style="display:inline-flex;margin-bottom:12px;"><span class="sd-dot"></span>SON DAKİKA</div>':''}
+      <div class="detail-category">${data.konum?'📍 '+esc(data.konum):'📰 Haber'}</div>
+      <h1 class="detail-title">${esc(data.baslik)}</h1>
+      <div class="detail-meta-row">
+        <span>✍️ ${esc(data.authorName||'Editör')}</span>
+        <span>🕐 ${timeAgo(data.createdAt?.toDate())}</span>
+      </div>
+      <div class="detail-divider"></div>
+      <p class="detail-ozet">${esc(data.ozet||'')}</p>
+      ${data.icerik?`<div class="detail-icerik">${esc(data.icerik).replace(/\n/g,'<br>')}</div>`:''}
+    </div>`;
+  history.pushState({page:'haber'},'',' ');
+}
+
+// ══════════════════════════════════════════
+// İLAN DETAY MODAL
+// ══════════════════════════════════════════
+window.openIlanDetay = (id, data) => {
+  document.getElementById('idetTitle').textContent  = data.baslik||'';
+  document.getElementById('idetBody').textContent   = data.aciklama||'';
+  document.getElementById('idetMeta').innerHTML     = `${data.konum?'📍 '+esc(data.konum):''}  ${data.telefon?'📞 '+esc(data.telefon):''}`;
+  document.getElementById('idetTime').textContent   = timeAgo(data.createdAt?.toDate());
+  document.getElementById('idetAuthor').textContent = data.authorName||'';
+  const img = document.getElementById('idetImg');
+  img.src   = data.imageURL||''; img.style.display = data.imageURL?'block':'none';
+  document.getElementById('idetPhone').href        = data.telefon?`tel:${data.telefon}`:'#';
+  document.getElementById('idetPhone').style.display = data.telefon?'flex':'none';
+  document.getElementById('ilanDetayModal').classList.add('open');
+};
+window.closeIlanDetay = () => document.getElementById('ilanDetayModal').classList.remove('open');
+
+// ══════════════════════════════════════════
+// ESNAF
+// ══════════════════════════════════════════
+function loadEsnaf() {
+  const q = query(collection(db,'esnaf'), where('aktif','==',true));
+  onSnapshot(q, snap => {
+    const row = document.getElementById('esnafRow');
+    row.innerHTML = '';
+    if(snap.empty){ row.innerHTML='<div class="empty-card">📭 Kayıt yok</div>'; return; }
+    snap.forEach(d=>{
+      const data=d.data();
+      const card=document.createElement('div');
+      card.className='esnaf-card';
+      card.innerHTML=`
+        <div class="ec-logo" style="background:${data.logoBg||'#F5F5F5'};">${data.logo||'🏪'}</div>
+        <div class="ec-name">${esc(data.isim)}</div>
+        <div class="ec-offer">${esc(data.kampanya||'')}</div>
+        <div class="ec-phone">${esc(data.telefon||'')}</div>`;
+      row.appendChild(card);
+    });
+  });
+}
+
+// ══════════════════════════════════════════
+// KAMPANYA (ANA SAYFA)
+// ══════════════════════════════════════════
+function loadKampanyalarHome() {
+  const q = query(
+    collection(db,'esnaf_kampanyalar'),
+    where('status','==','approved'),
+    orderBy('createdAt','desc'),
+    limit(5)
+  );
+  onSnapshot(q, snap => {
+    const section = document.getElementById('kampanyaSection');
+    const list    = document.getElementById('kampanyaHomeList');
+    if(snap.empty){ section.style.display='none'; return; }
+    section.style.display = 'block';
+    list.innerHTML = '';
+    snap.forEach(d => {
+      const data = d.data();
+      const div = document.createElement('div');
+      div.className = 'kampanya-kart';
+      div.style.flexDirection = 'column';
+      div.innerHTML = `
+        ${data.imageURL ? `<img src="${data.imageURL}" style="width:100%;border-radius:10px;margin-bottom:10px;max-height:160px;object-fit:cover;" alt="">` : ''}
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div class="kk-ico">📢</div>
+          <div class="kk-body">
+            <div class="kk-esnaf">🏪 ${esc(data.esnafAdi||'Esnaf')}</div>
+            <div class="kk-mesaj">${esc(data.mesaj)}</div>
+            <div class="kk-time">${timeAgo(data.createdAt?.toDate())}</div>
+          </div>
+        </div>`;
+      list.appendChild(div);
+    });
+  }, err => {
+    // composite index yoksa sessizce geç
+    console.warn('loadKampanyalarHome:', err.message);
+    // fallback: index olmadan dene
+    getDocs(query(collection(db,'esnaf_kampanyalar'), orderBy('createdAt','desc'), limit(20)))
+      .then(snap => {
+        const approved = snap.docs.filter(d => d.data().status === 'approved').slice(0,5);
+        const section = document.getElementById('kampanyaSection');
+        const list    = document.getElementById('kampanyaHomeList');
+        if(!approved.length){ section.style.display='none'; return; }
+        section.style.display='block';
+        list.innerHTML='';
+      approved.forEach(d => {
+          const data = d.data();
+          const div = document.createElement('div');
+          div.className = 'kampanya-kart';
+          div.innerHTML = `
+            ${data.imageURL ? `<img src="${data.imageURL}" style="width:100%;border-radius:10px;margin-bottom:10px;max-height:160px;object-fit:cover;" alt="">` : ''}
+            <div class="kk-ico">📢</div>
+            <div class="kk-body">
+              <div class="kk-esnaf">🏪 ${esc(data.esnafAdi||'Esnaf')}</div>
+              <div class="kk-mesaj">${esc(data.mesaj)}</div>
+              <div class="kk-time">${timeAgo(data.createdAt?.toDate())}</div>
+            </div>`;
+          list.appendChild(div);
+        });
+      });
+  });
+}
+function loadArsiv(preloaded) {
+  if (preloaded) {
+    renderArsiv(preloaded);
+    return;
+  }
+  const q = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(15));
+  onSnapshot(q, snap => {
+    renderArsiv(snap.docs.map(d => ({id:d.id, ...d.data()})));
+  });
+}
+
+function renderArsiv(items) {
+  const list = document.getElementById('arsivList');
+  list.innerHTML = '';
+  if (!items.length) { list.innerHTML = '<div class="empty-card">📭 Haber yok</div>'; return; }
+  items.forEach(data => {
+    const ago  = timeAgo(data.createdAt?.toDate());
+    const item = document.createElement('div');
+    item.className = 'arsiv-item';
+    item.onclick = () => goPage('haber', data);
+    item.innerHTML = `
+      <div class="arsiv-thumb">${data.imageURL?`<img src="${data.imageURL}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" alt="">`:data.emoji||'📰'}</div>
+      <div class="arsiv-body">
+        <div class="arsiv-title">${data.sonDakika?'<span style="background:#D32F2F;color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;margin-right:5px;">SON DAKİKA</span>':''}${esc(data.baslik)}</div>
+        <div class="arsiv-excerpt">${esc((data.ozet||'').substring(0,80))}…</div>
+        <div class="arsiv-time">${ago}</div>
+      </div>`;
+    list.appendChild(item);
+  });
+}
+
+// ══════════════════════════════════════════
+// VEFAT
+// ══════════════════════════════════════════
+function loadVefatlar() {
+  const q = query(collection(db,'vefat'), orderBy('createdAt','desc'), limit(20));
+  onSnapshot(q, snap => {
+    const list = document.getElementById('vefatList');
+    list.innerHTML='';
+    if(snap.empty){
+      list.innerHTML=`<div style="padding:32px;text-align:center;color:#8E8E93;">
+        <div style="font-size:40px;margin-bottom:12px;">🕊️</div>
+        <div style="font-size:14px;font-weight:600;">Henüz vefat bildirimi yok</div>
+      </div>`; return;
+    }
+    snap.forEach(d=>{
+      const v=d.data();
+      const card=document.createElement('div');
+      card.className='vefat-card';
+      card.innerHTML=`
+        <div class="vefat-icon">🕊️</div>
+        <div class="vefat-body">
+          <div class="vefat-name">${esc(v.ad)}</div>
+          <div class="vefat-info">${v.yakin?esc(v.yakin)+'\'ın yakını':''}${v.yas?' · '+v.yas+' yaşında':''}</div>
+          ${v.cami?`<div class="vefat-cami">🕌 ${esc(v.cami)}</div>`:''}
+          ${v.namazSaati?`<div class="vefat-saat">🕐 ${esc(v.namazSaati)}</div>`:''}
+          ${v.telefon?`<div class="vefat-tel">📞 ${esc(v.telefon)}</div>`:''}
+          <div class="vefat-time">${timeAgo(v.createdAt?.toDate())}</div>
+        </div>`;
+      list.appendChild(card);
+    });
+  });
+}
+
+// ══════════════════════════════════════════
+// ARAMA
+// ══════════════════════════════════════════
+let searchTimer = null;
+window.onSearchInput = (val) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadSearch(val), 400);
 };
 
-window.haberKaydet = async () => {
-  const id       = document.getElementById('hId').value;
-  const baslik   = document.getElementById('hBaslik').value.trim();
-  const ozet     = document.getElementById('hOzet').value.trim();
-  const icerik   = document.getElementById('hIcerik').value.trim();
-  const konum    = document.getElementById('hKonum').value.trim();
-  const sonDakika= document.getElementById('hSonDakika').checked;
-  const emoji    = document.getElementById('hEmoji').value.trim() || '📰';
-  const fotoInput= document.getElementById('hFoto');
+async function loadSearch(term) {
+  const list = document.getElementById('searchResults');
+  if (!term.trim()) {
+    list.innerHTML = `<div style="padding:40px;text-align:center;color:#8E8E93;font-size:14px;">🔍 Aramak istediğinizi yazın</div>`;
+    return;
+  }
+  list.innerHTML = '<div class="loading-sm">Aranıyor…</div>';
+  const term_lower = term.toLowerCase();
 
-  if (!baslik) { showToast('Başlık zorunludur.', true); return; }
-  if (!ozet)   { showToast('Özet zorunludur.', true); return; }
+  try {
+    const [haberSnap, ilanSnap] = await Promise.all([
+      getDocs(query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(50))),
+      getDocs(query(collection(db,'ilanlar'), orderBy('createdAt','desc'), limit(100)))
+    ]);
 
-  const btn = document.getElementById('hKaydetBtn');
-  btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…'; btn.style.opacity = '0.65';
+    list.innerHTML = '';
+    let count = 0;
+
+    haberSnap.forEach(d => {
+      const data=d.data();
+      if((data.baslik||'').toLowerCase().includes(term_lower) || (data.ozet||'').toLowerCase().includes(term_lower)){
+        count++;
+        const item=document.createElement('div');
+        item.className='search-item';
+        item.onclick=()=>goPage('haber',{id:d.id,...data});
+        item.innerHTML=`
+          <div class="si-icon">${data.emoji||'📰'}</div>
+          <div class="si-body">
+            <div class="si-type">HABER</div>
+            <div class="si-title">${highlight(esc(data.baslik),term)}</div>
+            <div class="si-meta">${timeAgo(data.createdAt?.toDate())}</div>
+          </div>`;
+        list.appendChild(item);
+      }
+    });
+
+    ilanSnap.forEach(d => {
+      const data=d.data();
+      if(data.status !== 'approved') return;
+      if((data.baslik||'').toLowerCase().includes(term_lower) || (data.aciklama||'').toLowerCase().includes(term_lower)){
+        count++;
+        const item=document.createElement('div');
+        item.className='search-item';
+        item.onclick=()=>openIlanDetay(d.id,data);
+        item.innerHTML=`
+          <div class="si-icon">${{kayip:'🔍',acil:'🩸',satilik:'📦',duyuru:'📢',sorun:'🚧'}[data.kategori]||'📌'}</div>
+          <div class="si-body">
+            <div class="si-type">${(data.kategori||'İLAN').toUpperCase()}</div>
+            <div class="si-title">${highlight(esc(data.baslik),term)}</div>
+            <div class="si-meta">${timeAgo(data.createdAt?.toDate())}</div>
+          </div>`;
+        list.appendChild(item);
+      }
+    });
+
+    if(count===0) list.innerHTML=`<div style="padding:40px;text-align:center;color:#8E8E93;font-size:14px;">😕 "${esc(term)}" için sonuç bulunamadı</div>`;
+  } catch(e) {
+    console.warn('Arama hatası:', e.message);
+    list.innerHTML = `<div style="padding:40px;text-align:center;color:#8E8E93;font-size:14px;">⚠️ Arama şu anda yapılamıyor</div>`;
+  }
+}
+
+function highlight(text, term) {
+  const re = new RegExp('('+term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  return text.replace(re,'<mark style="background:#FFEB3B;border-radius:2px;">$1</mark>');
+}
+
+// ══════════════════════════════════════════
+// BİLDİRİMLER
+// ══════════════════════════════════════════
+function loadNotifications() {
+  const list = document.getElementById('notifList');
+  // Firestore'dan son haberler + onaylanan ilanlar
+  const q = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(10));
+  onSnapshot(q, snap => {
+    list.innerHTML='';
+    snap.forEach(d=>{
+      const data=d.data(); const ago=timeAgo(data.createdAt?.toDate());
+      const item=document.createElement('div');
+      item.className='notif-item';
+      item.onclick=()=>goPage('haber',{id:d.id,...data});
+      item.innerHTML=`
+        <div class="ni-icon">${data.sonDakika?'🚨':'📰'}</div>
+        <div class="ni-body">
+          <div class="ni-title">${esc(data.baslik)}</div>
+          <div class="ni-meta">${ago}</div>
+        </div>`;
+      list.appendChild(item);
+    });
+    if(snap.empty) list.innerHTML='<div style="padding:40px;text-align:center;color:#8E8E93;">🔔 Bildirim yok</div>';
+  });
+}
+
+// ══════════════════════════════════════════
+// ECZANE
+// ══════════════════════════════════════════
+function loadEczaneler() {
+  const q = query(collection(db,'eczaneler'), where('nobetci','==',true));
+  onSnapshot(q, snap => {
+    const list = document.getElementById('eczaneList');
+    list.innerHTML='';
+    if(snap.empty){
+      // Statik veri göster
+      const statik=[
+        {isim:'Güven Eczanesi',adres:'Atatürk Cd. No:24',telefon:'0312 111 22 33'},
+        {isim:'Sağlık Eczanesi',adres:'Cumhuriyet Sk. No:8',telefon:'0312 444 55 66'}
+      ];
+      statik.forEach(e=>{
+        list.appendChild(buildEczaneCard(e));
+      });
+      return;
+    }
+    snap.forEach(d=>list.appendChild(buildEczaneCard(d.data())));
+  });
+}
+
+function buildEczaneCard(e) {
+  const card=document.createElement('div');
+  card.className='eczane-card';
+  card.innerHTML=`
+    <div class="ez-icon">💊</div>
+    <div class="ez-body">
+      <div class="ez-name">${esc(e.isim)}</div>
+      <div class="ez-adres">📍 ${esc(e.adres)}</div>
+      <a href="tel:${esc(e.telefon)}" class="ez-tel">📞 ${esc(e.telefon)}</a>
+    </div>
+    <div class="ez-badge">Nöbetçi</div>`;
+  return card;
+}
+
+// ══════════════════════════════════════════
+// MAHALLE KÜRSÜSÜ
+// ══════════════════════════════════════════
+function loadKursus() {
+  const q = query(collection(db,'kursus'), orderBy('createdAt','desc'), limit(20));
+  onSnapshot(q, snap => {
+    const list = document.getElementById('kursusList');
+    list.innerHTML='';
+    if(snap.empty){list.innerHTML='<div style="padding:32px;text-align:center;color:#8E8E93;font-size:14px;">📭 Henüz bildirim yok</div>';return;}
+    snap.forEach(d=>{
+      const data=d.data();
+      const item=document.createElement('div');
+      item.className='kursus-item';
+      item.innerHTML=`
+        <div class="ki-header">
+          <span class="ki-tag ${data.cozuldu?'ki-tag-ok':'ki-tag-bekle'}">${data.cozuldu?'✅ Çözüldü':'⏳ Bekliyor'}</span>
+          ${data.belediyeIletildi?'<span class="ki-tag ki-tag-info">📨 Belediyeye İletildi</span>':''}
+          <span class="ki-time">${timeAgo(data.createdAt?.toDate())}</span>
+        </div>
+        ${data.imageURL?`<img src="${data.imageURL}" class="ki-img" alt="">`:''}
+        <div class="ki-title">${esc(data.baslik)}</div>
+        <div class="ki-body">${esc(data.aciklama||'')}</div>
+        <div class="ki-meta">📍 ${esc(data.konum||'—')} · 👤 ${esc(data.authorName||'Anonim')}</div>`;
+      list.appendChild(item);
+    });
+  });
+}
+
+window.submitKursus = async () => {
+  if(!currentUser){showToast('Bildirim için giriş yapmalısınız.',true);return;}
+  const baslik   = document.getElementById('kBaslik').value.trim();
+  const aciklama = document.getElementById('kAciklama').value.trim();
+  const konum    = document.getElementById('kKonum').value.trim();
+  const fotoInput= document.getElementById('kFoto');
+  if(!baslik){showToast('Başlık zorunludur.',true);return;}
+  setLoad('kSubmitBtn',true,'Gönderiliyor…');
+  try {
+    let imageURL=null;
+    if(fotoInput.files[0]){
+      const fd=new FormData();
+      fd.append('file',fotoInput.files[0]);
+      fd.append('upload_preset',CLD_PRESET);
+      fd.append('folder','mutlular_haber/kursus');
+      const res=await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`,{method:'POST',body:fd});
+      const data=await res.json();
+      imageURL=data.secure_url;
+    }
+    await addDoc(collection(db,'kursus'),{
+      baslik,aciklama,konum,imageURL,
+      cozuldu:false,belediyeIletildi:false,
+      uid:currentUser.uid,
+      authorName:currentUser.displayName||currentUser.email,
+      createdAt:serverTimestamp()
+    });
+    ['kBaslik','kAciklama','kKonum'].forEach(id=>document.getElementById(id).value='');
+    fotoInput.value='';
+    document.getElementById('kFotoPreview').innerHTML='';
+    showToast('Bildiriminiz alındı! Teşekkürler 🙏');
+    document.getElementById('kursusForm').style.display='none';
+  } catch(e){showToast('Hata: '+e.message,true);}
+  finally{setLoad('kSubmitBtn',false,'📢 Gönder');}
+};
+
+window.toggleKursusForm = () => {
+  if(!currentUser){openLogin('giris');return;}
+  const f=document.getElementById('kursusForm');
+  f.style.display=f.style.display==='none'?'block':'none';
+};
+
+window.kFotoPreview = input => {
+  const p=document.getElementById('kFotoPreview');
+  p.innerHTML='';
+  if(input.files[0]){
+    const img=document.createElement('img');
+    img.src=URL.createObjectURL(input.files[0]);
+    img.style='width:100%;border-radius:10px;margin-top:8px;max-height:160px;object-fit:cover;';
+    p.appendChild(img);
+  }
+};
+
+// ══════════════════════════════════════════
+// PROFİL
+// ══════════════════════════════════════════
+let _profileUnsub = null;
+
+function loadProfile() {
+  if(!currentUser){
+    document.getElementById('profileContent').innerHTML=`
+      <div style="padding:60px 20px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:16px;">👤</div>
+        <div style="font-size:18px;font-weight:800;color:#1C1C1E;margin-bottom:8px;">Giriş yapın</div>
+        <div style="font-size:14px;color:#8E8E93;margin-bottom:24px;">Profilinizi görüntülemek için giriş yapın</div>
+        <button onclick="openLogin('giris')" style="background:#D32F2F;color:#fff;border:none;padding:14px 32px;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer;">Giriş Yap</button>
+      </div>`;
+    return;
+  }
+  if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
+  const q = query(collection(db,'ilanlar'), where('uid','==',currentUser.uid), orderBy('createdAt','desc'));
+  _profileUnsub = onSnapshot(q, snap=>{
+    let html=`
+      <div class="profile-top">
+        <div class="profile-ava">😊</div>
+        <div class="profile-name">${esc(currentUser.displayName||currentUser.email)}</div>
+        <div class="profile-email">${esc(currentUser.email)}</div>
+        <div class="profile-stats">
+          <div class="ps-item"><div class="ps-num">${snap.size}</div><div class="ps-lbl">İlan</div></div>
+          <div class="ps-item"><div class="ps-num">4.8⭐</div><div class="ps-lbl">Puan</div></div>
+          <div class="ps-item"><div class="ps-num">${currentRole?'🏅':'—'}</div><div class="ps-lbl">Rol</div></div>
+        </div>
+      </div>
+      <div class="profile-section-title">İlanlarım</div>`;
+    if(snap.empty) html+='<div style="padding:20px;text-align:center;color:#8E8E93;">Henüz ilan vermediniz.</div>';
+    snap.forEach(d=>{
+      const data=d.data();
+      const tagColors=['#7B1FA2','#C62828','#2E7D32','#1565C0','#BF360C'];
+      const tagColor = tagColors[Math.abs(d.id.charCodeAt(0)) % tagColors.length];
+      html+=`<div class="profile-ilan-item" onclick="openIlanDetay('${d.id}',${JSON.stringify(data).replace(/"/g,'&quot;')})">
+        <div class="pii-tag" style="background:${tagColor};">${(data.kategori||'').toUpperCase()}</div>
+        <div class="pii-title">${esc(data.baslik)}</div>
+        <div class="pii-status ${data.status==='approved'?'s-ok':data.status==='rejected'?'s-red':'s-wait'}">${data.status==='approved'?'✅ Onaylandı':data.status==='rejected'?'❌ Reddedildi':'⏳ Onay Bekleniyor'}</div>
+        <div class="pii-time">${timeAgo(data.createdAt?.toDate())}</div>
+      </div>`;
+    });
+    document.getElementById('profileContent').innerHTML=html;
+  }, err => { console.warn('loadProfile hatası:', err.message); });
+}
+
+// ══════════════════════════════════════════
+// ESNAF PANELİ
+// ══════════════════════════════════════════
+let _currentEsnafData = null;
+
+async function checkEsnafDurumu(uid) {
+  try {
+    const snap = await getDocs(query(collection(db,'esnaf_basvurular'), where('uid','==',uid), limit(1)));
+    if (snap.empty) return;
+    _currentEsnafData = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    document.getElementById('esnafPanelLink').style.display = 'flex';
+  } catch(e) { console.warn('Esnaf durumu:', e.message); }
+}
+
+window.openEsnafPanel = async () => {
+  if (!_currentEsnafData) return;
+  closeUserPanel();
+  const overlay = document.getElementById('esnafPanelOverlay');
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  renderEsnafPanel();
+};
+
+window.closeEsnafPanel = () => {
+  document.getElementById('esnafPanelOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+};
+
+async function renderEsnafPanel() {
+  const d = _currentEsnafData;
+  const isApproved = d.status === 'approved';
+  const statusHtml = isApproved
+    ? '<span class="ep-status-badge ep-status-approved">✅ Hesabınız Aktif</span>'
+    : '<span class="ep-status-badge ep-status-pending">⏳ Onay Bekleniyor</span>';
+
+  // Kampanyaları çek
+  let kampanyaHtml = '';
+  try {
+    const kSnap = await getDocs(query(collection(db,'esnaf_kampanyalar'), where('esnafId','==',d.id), orderBy('createdAt','desc'), limit(10)));
+    if (kSnap.empty) {
+      kampanyaHtml = '<div style="padding:12px;text-align:center;color:#8E8E93;font-size:13px;">Henüz kampanya eklenmedi.</div>';
+    } else {
+      kSnap.forEach(k => {
+        const kd = k.data();
+        kampanyaHtml += `<div class="ep-kamp-item">
+          <div>
+            <div class="ep-kamp-text">${esc(kd.mesaj)}</div>
+            <div class="ep-kamp-meta">${kd.status==='approved'?'✅ Yayında':'⏳ Onay bekliyor'} · ${timeAgo(kd.createdAt?.toDate())}</div>
+          </div>
+          <button class="ep-kamp-sil" onclick="kampanyaSil('${k.id}')" title="Sil">🗑️</button>
+        </div>`;
+      });
+    }
+  } catch(e) { kampanyaHtml = ''; }
+
+  document.getElementById('esnafPanelSheet').innerHTML = `
+    <div class="ep-head">
+      <div class="ep-title">🏪 ${esc(d.isyeri)}</div>
+      <button class="ep-close" onclick="closeEsnafPanel()">✕</button>
+    </div>
+    ${statusHtml}
+    ${!isApproved ? `<div style="background:#FFF8E1;border-radius:12px;padding:12px;font-size:12px;color:#795800;margin-bottom:16px;">Başvurunuz admin tarafından inceleniyor. Onaylandıktan sonra kampanya ekleyebilirsiniz.</div>` : ''}
+
+    ${isApproved ? `
+    <div style="margin-bottom:16px;">
+      <div class="f-label" style="margin-bottom:8px;">YENİ KAMPANYA EKLE</div>
+      <textarea class="f-input" id="epKampanyaMesaj" placeholder="Örn: Bugün tüm ürünlerde %15 indirim! 🎉" style="height:80px;resize:none;" oninput="document.getElementById('epCharCount').textContent=this.value.length+'/200'"></textarea>
+      <div style="font-size:10px;color:#8E8E93;text-align:right;margin-top:2px;" id="epCharCount">0/200</div>
+
+      <div style="margin-top:10px;">
+        <div class="f-label" style="margin-bottom:6px;">FOTOĞRAF (opsiyonel)</div>
+        <div class="upload-zone" style="padding:12px;">
+          <input type="file" id="epKampanyaFoto" accept="image/*" onchange="epFotoOnizle(this)">
+          <div class="uz-icon" style="font-size:22px;">📷</div>
+          <div class="uz-text" style="font-size:12px;">Fotoğraf ekle</div>
+        </div>
+        <div id="epFotoPreview" style="margin-top:6px;"></div>
+      </div>
+
+      <button class="send-btn" style="margin-top:10px;" id="epKampanyaBtn" onclick="kampanyaGonder()">📢 Kampanyayı Gönder</button>
+      <div style="font-size:11px;color:#8E8E93;margin-top:6px;text-align:center;">Admin onayından sonra yayına girer</div>
+    </div>
+    <div class="f-label" style="margin-bottom:8px;">KAMPANYALARıM</div>
+    <div class="ep-kampanya-list">${kampanyaHtml}</div>
+    ` : ''}
+
+    <div style="background:var(--bg);border-radius:12px;padding:12px;font-size:12px;color:#8E8E93;margin-top:8px;">
+      📧 ${esc(d.email)} · 📞 ${esc(d.telefon||'—')} · 📍 ${esc(d.adres||'—')}
+    </div>`;
+}
+
+window.epFotoOnizle = input => {
+  const p = document.getElementById('epFotoPreview');
+  p.innerHTML = '';
+  if(input.files[0]){
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(input.files[0]);
+    img.style = 'width:100%;border-radius:10px;max-height:140px;object-fit:cover;';
+    p.appendChild(img);
+  }
+};
+
+window.kampanyaGonder = async () => {
+  if (!_currentEsnafData || _currentEsnafData.status !== 'approved') return;
+  const mesaj = document.getElementById('epKampanyaMesaj').value.trim();
+  if (!mesaj) { showToast('Kampanya mesajı boş olamaz.', true); return; }
+  if (mesaj.length > 200) { showToast('Mesaj en fazla 200 karakter olabilir.', true); return; }
+
+  const btn = document.getElementById('epKampanyaBtn');
+  btn.disabled = true; btn.textContent = '⏳ Gönderiliyor…'; btn.style.opacity = '0.7';
 
   try {
     let imageURL = null;
-
-    if (fotoInput.files[0]) {
+    const fotoInput = document.getElementById('epKampanyaFoto');
+    if(fotoInput && fotoInput.files[0]){
       const file = fotoInput.files[0];
-      if (file.size > 20 * 1024 * 1024) {
-        showToast('Fotoğraf 20 MB\'dan büyük olamaz.', true);
-        btn.disabled=false; btn.textContent='🚀 Yayınla'; btn.style.opacity='1';
+      if(file.size > 10 * 1024 * 1024){
+        showToast('Fotoğraf 10 MB\'dan büyük olamaz.', true);
+        btn.disabled=false; btn.textContent='📢 Kampanyayı Gönder'; btn.style.opacity='1';
         return;
       }
       btn.textContent = '📤 Fotoğraf yükleniyor…';
       const fd = new FormData();
       fd.append('file', file);
       fd.append('upload_preset', CLD_PRESET);
-      fd.append('folder', 'mutlular_haber/haberler');
-      let res;
-      try {
-        res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`, {method:'POST', body:fd});
-      } catch(netErr) {
-        throw new Error('Fotoğraf yüklenemedi. İnternet bağlantınızı kontrol edin.');
-      }
+      fd.append('folder', 'mutlular_haber/kampanyalar');
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`,
+        {method:'POST', body:fd}
+      );
+      if(!res.ok) throw new Error('Fotoğraf yüklenemedi.');
       const cldData = await res.json();
-      if (!cldData.secure_url) {
-        throw new Error('Fotoğraf yükleme hatası: ' + (cldData.error?.message || 'Cloudinary preset kontrol edin'));
-      }
+      if(!cldData.secure_url) throw new Error(cldData.error?.message || 'Cloudinary hatası');
       imageURL = cldData.secure_url;
-      btn.textContent = '💾 Firestore\'a kaydediliyor…';
     }
 
-    const payload = {
-      baslik,
-      ozet,
-      icerik: icerik || '',
-      konum: konum || '',
-      sonDakika,
-      emoji,
-      authorName: currentUser.displayName || currentUser.email,
-      authorId:   currentUser.uid,
-    };
-
-    // Yeni fotoğraf yüklendiyse güncelle; yoksa mevcut URL korunsun
-    if (imageURL) payload.imageURL = imageURL;
-
-    if (id) {
-      await updateDoc(doc(db,'haberler',id), { ...payload, updatedAt: serverTimestamp() });
-      showToast('Haber güncellendi ✅');
-    } else {
-      await addDoc(collection(db,'haberler'), { ...payload, createdAt: serverTimestamp() });
-      showToast('Haber yayınlandı ✅');
-    }
-
-    haberFormSifirla();
-    navigateTo('haberler');
-  } catch(e) {
-    showToast('Hata: ' + e.message, true);
-  } finally {
-    btn.disabled=false; btn.textContent='🚀 Yayınla'; btn.style.opacity='1';
-  }
-};
-
-window.haberFormSifirla = () => {
-  ['hId','hBaslik','hOzet','hIcerik','hKonum'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('hSonDakika').checked = false;
-  document.getElementById('hEmoji').value = '📰';
-  document.getElementById('hFoto').value = '';
-  document.getElementById('hFotoPreview').innerHTML = '';
-  document.getElementById('haberFormTitle').textContent = '➕ Yeni Haber Ekle';
-  document.getElementById('hKaydetBtn').textContent = '🚀 Yayınla';
-};
-
-// ══════════════════════════════════════════
-// ESNAF YÖNETİMİ
-// ══════════════════════════════════════════
-let esnafUnsubscribe = null;
-
-window.loadEsnaf = () => {
-  if (esnafUnsubscribe) esnafUnsubscribe();
-  const list = document.getElementById('esnafList');
-  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
-
-  esnafUnsubscribe = onSnapshot(
-    query(collection(db,'esnaf'), orderBy('createdAt','desc')),
-    snap => {
-      list.innerHTML = '';
-      if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
-      snap.forEach(d => list.appendChild(buildEsnafRow(d.id, d.data())));
-    }
-  );
-};
-
-function buildEsnafRow(id, data) {
-  const div = document.createElement('div');
-  div.className = 'list-row';
-  div.innerHTML = `
-    <div class="row-main">
-      <div class="row-thumb-placeholder" style="background:${data.logoBg||'#F5F5F5'};">${data.logo||'🏪'}</div>
-      <div class="row-body">
-        <div class="row-top">
-          <span class="tag" style="background:${data.aktif?'#2E7D32':'#999'};">${data.aktif?'AKTİF':'PASİF'}</span>
-          <span class="row-meta" style="margin-left:auto;">${timeAgo(data.createdAt?.toDate())}</span>
-        </div>
-        <div class="row-title">${esc(data.isim)}</div>
-        <div class="row-meta">${esc(data.kampanya||'')} &nbsp;·&nbsp; 📞 ${esc(data.telefon||'—')}</div>
-      </div>
-    </div>
-    <div class="row-actions">
-      <button class="btn-onay" onclick="esnafToggle('${id}',${!data.aktif})">${data.aktif?'⏸ Pasif Yap':'▶️ Aktif Yap'}</button>
-      <button class="btn-edit" onclick="esnafDuzenle('${id}')">✏️ Düzenle</button>
-      <button class="btn-del"  onclick="esnafSil('${id}')">🗑️ Sil</button>
-    </div>`;
-  return div;
-}
-
-window.esnafToggle = async (id, aktif) => {
-  await updateDoc(doc(db,'esnaf',id), { aktif });
-  showToast(aktif ? 'Esnaf aktif edildi.' : 'Esnaf pasif edildi.');
-};
-
-window.esnafSil = async id => {
-  if (!confirm('Bu esnafı silmek istiyor musunuz?')) return;
-  await deleteDoc(doc(db,'esnaf',id));
-  showToast('Esnaf silindi.');
-};
-
-window.esnafDuzenle = async id => {
-  const snap = await getDoc(doc(db,'esnaf',id));
-  if (!snap.exists()) return;
-  const data = snap.data();
-  document.getElementById('eId').value       = id;
-  document.getElementById('eIsim').value     = data.isim      || '';
-  document.getElementById('eKampanya').value = data.kampanya  || '';
-  document.getElementById('eTelefon').value  = data.telefon   || '';
-  document.getElementById('eLogo').value     = data.logo      || '';
-  document.getElementById('eLogoBg').value   = data.logoBg    || '#F5F5F5';
-  document.getElementById('eAktif').checked  = data.aktif     ?? true;
-  document.getElementById('esnafFormTitle').textContent = '✏️ Esnafı Düzenle';
-  document.getElementById('esnafForm').scrollIntoView({behavior:'smooth'});
-};
-
-window.esnafKaydet = async () => {
-  const id       = document.getElementById('eId').value;
-  const isim     = document.getElementById('eIsim').value.trim();
-  const kampanya = document.getElementById('eKampanya').value.trim();
-  const telefon  = document.getElementById('eTelefon').value.trim();
-  const logo     = document.getElementById('eLogo').value.trim() || '🏪';
-  const logoBg   = document.getElementById('eLogoBg').value;
-  const aktif    = document.getElementById('eAktif').checked;
-
-  if (!isim) { showToast('Esnaf adı zorunludur.', true); return; }
-  setBtnLoad('eKaydetBtn', true, 'Kaydediliyor…');
-
-  try {
-    const payload = { isim, kampanya, telefon, logo, logoBg, aktif };
-    if (id) {
-      await updateDoc(doc(db,'esnaf',id), { ...payload, updatedAt: serverTimestamp() });
-      showToast('Esnaf güncellendi ✅');
-    } else {
-      await addDoc(collection(db,'esnaf'), { ...payload, createdAt: serverTimestamp() });
-      showToast('Esnaf eklendi ✅');
-    }
-    esnafFormSifirla();
-  } catch(e) {
-    showToast('Hata: ' + e.message, true);
-  } finally {
-    setBtnLoad('eKaydetBtn', false, '💾 Kaydet');
-  }
-};
-
-window.esnafFormSifirla = () => {
-  ['eId','eIsim','eKampanya','eTelefon','eLogo'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('eLogoBg').value = '#F5F5F5';
-  document.getElementById('eAktif').checked = true;
-  document.getElementById('esnafFormTitle').textContent = '➕ Yeni Esnaf Ekle';
-};
-
-// ══════════════════════════════════════════
-// KULLANICI / ROL YÖNETİMİ (sadece Admin)
-// ══════════════════════════════════════════
-window.loadKullanicilar = () => {
-  const list = document.getElementById('kullaniciList');
-  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
-  onSnapshot(collection(db,'admins'), snap => {
-    list.innerHTML = '';
-    if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
-    snap.forEach(d => {
-      const data = d.data();
-      const row  = document.createElement('div');
-      row.className = 'list-row';
-      row.innerHTML = `
-        <div class="row-main">
-          <div class="row-thumb-placeholder">${data.role==='admin'?'👑':'📰'}</div>
-          <div class="row-body">
-            <div class="row-title">${esc(data.name||data.email||d.id)}</div>
-            <div class="row-meta">${esc(data.email||'')} &nbsp;·&nbsp; <strong>${data.role==='admin'?'Admin':'Editör'}</strong></div>
-          </div>
-        </div>
-        <div class="row-actions">
-          ${d.id !== currentUser.uid ? `<button class="btn-del" onclick="rolSil('${d.id}')">🗑️ Kaldır</button>` : '<span class="row-meta">Sen</span>'}
-        </div>`;
-      list.appendChild(row);
+    await addDoc(collection(db,'esnaf_kampanyalar'), {
+      esnafId:   _currentEsnafData.id,
+      esnafAdi:  _currentEsnafData.isyeri,
+      uid:       currentUser.uid,
+      mesaj,
+      imageURL:  imageURL,
+      status:    'pending',
+      createdAt: serverTimestamp()
     });
-  });
+    showToast('Kampanya gönderildi! Admin onayı bekleniyor. 📢');
+    renderEsnafPanel();
+  } catch(e) {
+    showToast('Hata: ' + e.message, true);
+  } finally {
+    if(document.getElementById('epKampanyaBtn')){
+      document.getElementById('epKampanyaBtn').disabled=false;
+      document.getElementById('epKampanyaBtn').textContent='📢 Kampanyayı Gönder';
+      document.getElementById('epKampanyaBtn').style.opacity='1';
+    }
+  }
 };
 
-window.rolEkle = async () => {
-  const uid   = document.getElementById('rolUid').value.trim();
-  const name  = document.getElementById('rolName').value.trim();
-  const email = document.getElementById('rolEmail').value.trim();
-  const role  = document.getElementById('rolRole').value;
-  if (!uid || !email) { showToast('UID ve e-posta zorunludur.', true); return; }
-
-  await setDoc(doc(db,'admins',uid), { name, email, role, addedBy: currentUser.uid, addedAt: serverTimestamp() });
-  showToast(`${role === 'admin' ? 'Admin' : 'Editör'} eklendi ✅`);
-  ['rolUid','rolName','rolEmail'].forEach(id => document.getElementById(id).value = '');
-};
-
-window.rolSil = async uid => {
-  if (!confirm('Bu kullanıcının panel erişimini kaldırmak istiyor musunuz?')) return;
-  await deleteDoc(doc(db,'admins',uid));
-  showToast('Erişim kaldırıldı.');
-};
-
-// ══════════════════════════════════════════
-// ESNAF BAŞVURU YÖNETİMİ
-// ══════════════════════════════════════════
-window.loadEsnafBasvurular = (filtre = 'pending') => {
-  document.querySelectorAll('.esnaf-filtre-btn').forEach(b => b.classList.toggle('active', b.dataset.f === filtre));
-  const list = document.getElementById('esnafBasvuruList');
-  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
-  const q = filtre === 'all'
-    ? query(collection(db,'esnaf_basvurular'), orderBy('createdAt','desc'))
-    : query(collection(db,'esnaf_basvurular'), where('status','==',filtre), orderBy('createdAt','desc'));
-  onSnapshot(q, snap => {
-    list.innerHTML = '';
-    if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
-    snap.forEach(d => list.appendChild(buildBasvuruRow(d.id, d.data())));
-  }, err => {
-    console.warn('Başvuru yükle:', err.message);
-    list.innerHTML = '<div class="empty-state">⚠️ Veri yüklenemedi. Composite index gerekebilir.</div>';
-  });
-};
-
-function buildBasvuruRow(id, data) {
-  const div = document.createElement('div');
-  div.className = 'list-row';
-  const katEmoji = {market:'🛒',kasap:'🥩',manav:'🥦',ekmek:'🍞',lokanta:'🍽️',kafe:'☕',berber:'✂️',eczane:'💊',kirtasiye:'📚',tamirhane:'🔧',diger:'🏪'};
-  div.innerHTML = `
-    <div class="row-main">
-      <div class="row-thumb-placeholder">${katEmoji[data.kategori]||'🏪'}</div>
-      <div class="row-body">
-        <div class="row-top">
-          <span class="row-status status-${data.status}">${data.status==='approved'?'✅ Onaylı':data.status==='rejected'?'❌ Reddedildi':'⏳ Bekliyor'}</span>
-        </div>
-        <div class="row-title">${esc(data.isyeri)}</div>
-        <div class="row-meta">👤 ${esc(data.name)} · 📧 ${esc(data.email)} · 📞 ${esc(data.telefon||'—')}</div>
-        <div class="row-meta">📍 ${esc(data.adres||'—')} · 🏷️ ${esc(data.kategori||'—')}</div>
-      </div>
-    </div>
-    <div class="row-actions">
-      ${data.status === 'pending' ? `
-        <button class="btn-onay" onclick="basvuruOnayla('${id}')">✅ Onayla</button>
-        <button class="btn-red"  onclick="basvuruReddet('${id}')">❌ Reddet</button>` : ''}
-      ${data.status === 'approved' ? `<button class="btn-red" onclick="basvuruReddet('${id}')">🚫 İptal Et</button>` : ''}
-      <button class="btn-del" onclick="basvuruSil('${id}')">🗑️ Sil</button>
-    </div>`;
-  return div;
-}
-
-window.basvuruOnayla = async id => {
-  await updateDoc(doc(db,'esnaf_basvurular',id), { status:'approved', approvedAt: serverTimestamp(), approvedBy: currentUser.uid });
-  showToast('Esnaf başvurusu onaylandı ✅');
-};
-
-window.basvuruReddet = async id => {
-  await updateDoc(doc(db,'esnaf_basvurular',id), { status:'rejected', rejectedAt: serverTimestamp() });
-  showToast('Başvuru reddedildi.');
-};
-
-window.basvuruSil = async id => {
-  if (!confirm('Bu başvuruyu kalıcı silmek istiyor musunuz?')) return;
-  await deleteDoc(doc(db,'esnaf_basvurular',id));
-  showToast('Başvuru silindi.');
-};
-
-// ══════════════════════════════════════════
-// KAMPANYA YÖNETİMİ
-// ══════════════════════════════════════════
-window.loadKampanyalar = (filtre = 'pending') => {
-  document.querySelectorAll('.kamp-filtre-btn').forEach(b => b.classList.toggle('active', b.dataset.f === filtre));
-  const list = document.getElementById('kampanyaList');
-  list.innerHTML = '<div class="loading"><div class="spin"></div> Yükleniyor…</div>';
-  const q = filtre === 'all'
-    ? query(collection(db,'esnaf_kampanyalar'), orderBy('createdAt','desc'), limit(50))
-    : query(collection(db,'esnaf_kampanyalar'), where('status','==',filtre), orderBy('createdAt','desc'));
-  onSnapshot(q, snap => {
-    list.innerHTML = '';
-    if (snap.empty) { list.innerHTML = '<div class="empty-state">📭 Kayıt yok</div>'; return; }
-    snap.forEach(d => list.appendChild(buildKampanyaRow(d.id, d.data())));
-  }, err => {
-    console.warn('Kampanya yükle:', err.message);
-  });
-};
-
-function buildKampanyaRow(id, data) {
-  const div = document.createElement('div');
-  div.className = 'list-row';
-  div.innerHTML = `
-    <div class="row-main">
-      <div class="row-thumb-placeholder">📢</div>
-      <div class="row-body">
-        <div class="row-top">
-          <span class="row-status status-${data.status}">${data.status==='approved'?'✅ Yayında':data.status==='rejected'?'❌ Reddedildi':'⏳ Bekliyor'}</span>
-          <span class="row-meta" style="margin-left:auto;">${timeAgo(data.createdAt?.toDate())}</span>
-        </div>
-        <div class="row-title">${esc(data.mesaj)}</div>
-        <div class="row-meta">🏪 ${esc(data.esnafAdi||'—')}</div>
-      </div>
-    </div>
-    <div class="row-actions">
-      ${data.status === 'pending' ? `
-        <button class="btn-onay" onclick="kampanyaOnayla('${id}')">✅ Onayla</button>
-        <button class="btn-red"  onclick="kampanyaReddet('${id}')">❌ Reddet</button>` : ''}
-      ${data.status === 'approved' ? `<button class="btn-red" onclick="kampanyaReddet('${id}')">🚫 Kaldır</button>` : ''}
-      <button class="btn-del" onclick="kampanyaAdminSil('${id}')">🗑️ Sil</button>
-    </div>`;
-  return div;
-}
-
-window.kampanyaOnayla = async id => {
-  await updateDoc(doc(db,'esnaf_kampanyalar',id), { status:'approved', approvedAt: serverTimestamp(), approvedBy: currentUser.uid });
-  showToast('Kampanya onaylandı ✅');
-};
-
-window.kampanyaReddet = async id => {
-  await updateDoc(doc(db,'esnaf_kampanyalar',id), { status:'rejected' });
-  showToast('Kampanya reddedildi.');
-};
-
-window.kampanyaAdminSil = async id => {
+window.kampanyaSil = async (id) => {
   if (!confirm('Bu kampanyayı silmek istiyor musunuz?')) return;
   await deleteDoc(doc(db,'esnaf_kampanyalar',id));
   showToast('Kampanya silindi.');
+  renderEsnafPanel();
 };
 
 // ══════════════════════════════════════════
-// SON DAKİKA DÜZELTME
+// İLAN GÖNDER
 // ══════════════════════════════════════════
-window.navigateTo = (page) => {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-  document.getElementById('page-' + page)?.classList.add('active');
-  document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
-
-  if (page === 'ilanlar')          loadIlanlar('pending');
-  if (page === 'haberler')         loadHaberler();
-  if (page === 'esnaf')            loadEsnaf();
-  if (page === 'kullanicilar')     loadKullanicilar();
-  if (page === 'esnaf-basvurular') loadEsnafBasvurular();
-  if (page === 'kampanyalar')      loadKampanyalar();
+window.submitIlan = async () => {
+  if(!currentUser){showToast('İlan için giriş yapmalısınız.',true);return;}
+  const kategori = document.getElementById('fKategori').value;
+  const baslik   = document.getElementById('fBaslik').value.trim();
+  const aciklama = document.getElementById('fAciklama').value.trim();
+  const konum    = document.getElementById('fKonum').value.trim();
+  const telefon  = document.getElementById('fTelefon').value.trim();
+  const fotoInput= document.getElementById('fFoto');
+  if(!kategori){showToast('Lütfen bir kategori seçin.',true);return;}
+  if(!baslik){showToast('Başlık zorunludur.',true);return;}
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '⏳ Gönderiliyor…'; btn.style.opacity='0.7';
+  try {
+    let imageURL = null;
+    if(fotoInput.files[0]){
+      const file = fotoInput.files[0];
+      if(file.size > 20 * 1024 * 1024){
+        showToast('Dosya 20 MB\'dan büyük olamaz.',true);
+        btn.disabled=false; btn.textContent='Paylaşımı Gönder ›'; btn.style.opacity='1';
+        return;
+      }
+      btn.textContent = '📤 Dosya yükleniyor…';
+      // Dosya tipine göre doğru Cloudinary endpoint'i seç
+      const isVideo = file.type.startsWith('video/');
+      const resourceType = isVideo ? 'video' : 'image';
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLD_PRESET);
+      fd.append('folder', 'mutlular_haber/ilanlar');
+      let res;
+      try {
+        res = await fetch(
+          `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/${resourceType}/upload`,
+          {method:'POST', body:fd}
+        );
+      } catch(netErr) {
+        throw new Error('Dosya yüklenemedi. İnternet bağlantınızı kontrol edin.');
+      }
+      if(!res.ok){
+        throw new Error(`Sunucu hatası: ${res.status}. Cloudinary preset'i kontrol edin.`);
+      }
+      const cldData = await res.json();
+      if(!cldData.secure_url){
+        const msg = cldData.error?.message || JSON.stringify(cldData);
+        throw new Error('Yükleme hatası: ' + msg);
+      }
+      imageURL = cldData.secure_url;
+      btn.textContent = '💾 Kaydediliyor…';
+    }
+    await addDoc(collection(db,'ilanlar'),{
+      kategori, baslik,
+      aciklama: aciklama || '',
+      konum:    konum    || '',
+      telefon:  telefon  || '',
+      imageURL: imageURL,
+      status:   'pending',
+      uid:      currentUser.uid,
+      authorName: currentUser.displayName || currentUser.email,
+      createdAt: serverTimestamp()
+    });
+    closeShare();
+    showToast('İlanınız alındı! Editör onayından sonra yayınlanacak ✅');
+    ['fBaslik','fAciklama','fKonum','fTelefon'].forEach(id => document.getElementById(id).value='');
+    document.getElementById('fKategori').selectedIndex = 0;
+    fotoInput.value = '';
+    document.getElementById('fotoPreview').innerHTML = '';
+  } catch(e){
+    showToast('Hata: ' + e.message, true);
+    console.error('submitIlan hatası:', e);
+  } finally {
+    btn.disabled=false; btn.textContent='Paylaşımı Gönder ›'; btn.style.opacity='1';
+  }
 };
 
-// ══════════════════════════════════════════
-// FOTO PREVİEW (haber)
-// ══════════════════════════════════════════
-window.haberFotoPreview = (input) => {
-  const prev = document.getElementById('hFotoPreview');
-  prev.innerHTML = '';
-  if (input.files[0]) {
-    const img = document.createElement('img');
-    img.src   = URL.createObjectURL(input.files[0]);
-    img.style = 'width:100%;border-radius:10px;margin-top:8px;max-height:200px;object-fit:cover;';
-    prev.appendChild(img);
+window.handleFotoChange = input => {
+  const p=document.getElementById('fotoPreview');
+  p.innerHTML='';
+  if(input.files[0]){
+    const img=document.createElement('img');
+    img.src=URL.createObjectURL(input.files[0]);
+    img.style='width:100%;border-radius:10px;margin-top:8px;max-height:160px;object-fit:cover;';
+    p.appendChild(img);
   }
 };
 
 // ══════════════════════════════════════════
-// HELPERS
+// UI HELPERS
 // ══════════════════════════════════════════
-function showScreen(name) {
-  document.getElementById('loginScreen').style.display = name === 'login' ? 'flex' : 'none';
-  document.getElementById('panelScreen').style.display = name === 'panel' ? 'flex' : 'none';
+window.openShare     = () => { document.getElementById('shareModal').classList.add('open'); document.body.style.overflow='hidden'; };
+window.closeShare    = () => { document.getElementById('shareModal').classList.remove('open'); document.body.style.overflow=''; };
+window.openUserPanel = () => document.getElementById('userPanel').classList.add('open');
+window.closeUserPanel= () => document.getElementById('userPanel').classList.remove('open');
+window.openLogin     = (tab='giris') => { closeUserPanel(); switchTab(tab); document.getElementById('loginModal').classList.add('open'); };
+window.closeLogin    = () => document.getElementById('loginModal').classList.remove('open');
+
+window.switchTab = tab => {
+  document.querySelectorAll('.lb-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab)?.classList.add('active');
+  document.getElementById('girisForm').style.display = tab==='giris'?'block':'none';
+  document.getElementById('kayitForm').style.display = tab==='kayit'?'block':'none';
+};
+
+function setLoad(id,loading,label){
+  const btn=document.getElementById(id);
+  if(!btn)return;
+  btn.disabled=loading;
+  if(label)btn.textContent=loading?'⏳ …':label;
+  btn.style.opacity=loading?'0.7':'1';
 }
 
-function showToast(msg, isError=false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.background = isError ? '#B71C1C' : '#1B5E20';
+function showToast(msg,isError=false){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.style.background=isError?'#B71C1C':'#1B5E20';
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3500);
+  setTimeout(()=>t.classList.remove('show'),3500);
 }
 
-function setBtnLoad(id, loading, label) {
-  const btn = document.getElementById(id);
-  if (!btn) return;
-  btn.disabled = loading;
-  btn.textContent = loading ? ('⏳ ' + (label || '')) : (label || '');
-  btn.style.opacity = loading ? '0.65' : '1';
+function timeAgo(date){
+  if(!date)return'';
+  const d=Math.floor((Date.now()-date)/1000);
+  if(d<60)return'Az önce';
+  if(d<3600)return Math.floor(d/60)+' dk önce';
+  if(d<86400)return Math.floor(d/3600)+' sa önce';
+  return Math.floor(d/86400)+' gün önce';
 }
 
-function timeAgo(date) {
-  if (!date) return '';
-  const d = Math.floor((Date.now() - date)/1000);
-  if (d < 60)    return 'Az önce';
-  if (d < 3600)  return Math.floor(d/60) + ' dk önce';
-  if (d < 86400) return Math.floor(d/3600) + ' sa önce';
-  return Math.floor(d/86400) + ' gün önce';
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function authErr(code){
+  const m={'auth/wrong-password':'Hatalı şifre.','auth/user-not-found':'Kullanıcı bulunamadı.',
+    'auth/invalid-email':'Geçersiz e-posta.','auth/email-already-in-use':'Bu e-posta kayıtlı.',
+    'auth/weak-password':'Şifre en az 6 karakter olmalı.','auth/too-many-requests':'Çok fazla deneme.'};
+  return m[code]||'Bir hata oluştu.';
 }
 
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// Back button handler
+window.addEventListener('popstate',()=>goPage('home'));
 
-function authErr(code) {
-  const m = {'auth/wrong-password':'Hatalı şifre.','auth/user-not-found':'Kullanıcı bulunamadı.','auth/invalid-email':'Geçersiz e-posta.','auth/too-many-requests':'Çok fazla deneme.'};
-  return m[code] || 'Giriş başarısız.';
-}
-
-function tagLabel(k) {
-  const m = {kayip:'KAYIP',acil:'ACİL',satilik:'SATILIK',duyuru:'DUYURU',sorun:'SORUN',vefat:'VEFAT',foto:'FOTO',etkinlik:'ETKİNLİK'};
-  return m[k] || k?.toUpperCase() || '?';
-}
-
-function tagEmoji(k) {
-  const m = {kayip:'🔍',acil:'🩸',satilik:'📦',duyuru:'📢',sorun:'🚧',vefat:'🕊️',foto:'📸',etkinlik:'📅'};
-  return m[k] || '📌';
-}
-
-function statusLabel(s) {
-  const m = {pending:'⏳ Bekliyor', approved:'✅ Onaylandı', rejected:'❌ Reddedildi'};
-  return m[s] || s;
-}
-
-function tagColor(k) {
-  const m = {kayip:'#7B1FA2',acil:'#C62828',satilik:'#2E7D32',duyuru:'#1565C0',sorun:'#BF360C',vefat:'#37474F'};
-  return m[k] || '#555';
-}
-
-showScreen('login');
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+loadPano();
+loadHaberler();  // içinde loadArsiv(all) zaten çağrılıyor
+loadEsnaf();
+loadKampanyalarHome();
+goPage('home');
 </script>
 
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-:root{
-  --red:#D32F2F;--red2:#B71C1C;
-  --sidebar:#1A1A2E;--sidebar2:#16213E;
-  --bg:#F4F6F9;--white:#fff;
-  --ink:#1C1C1E;--muted:#6B7280;
-  --border:#E5E7EB;--gold:#F59E0B;
-}
-html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+:root{--red:#D32F2F;--red2:#B71C1C;--bg:#F2F2F7;--white:#fff;--ink:#1C1C1E;--ink2:#3C3C3E;--muted:#8E8E93;--border:#E5E5EA;--gold:#F5A623;}
+html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
 
-/* ── LOGIN ── */
-#loginScreen{
-  display:flex;align-items:center;justify-content:center;
-  min-height:100vh;background:linear-gradient(135deg,#1A1A2E 0%,#D32F2F 100%);
-}
-.login-box{
-  background:#fff;border-radius:20px;padding:40px;
-  width:380px;max-width:90vw;
-  box-shadow:0 20px 60px rgba(0,0,0,0.3);
-}
-.login-logo{text-align:center;margin-bottom:28px;}
-.login-logo .ico{width:64px;height:64px;background:var(--red);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 12px;}
-.login-logo h1{font-family:'Playfair Display',serif;font-size:22px;color:var(--ink);}
-.login-logo p{font-size:12px;color:var(--muted);margin-top:4px;}
-.login-role-tabs{display:flex;background:#F3F4F6;border-radius:10px;padding:3px;margin-bottom:20px;}
-.lr-tab{flex:1;padding:8px;text-align:center;font-size:13px;font-weight:700;color:var(--muted);border-radius:8px;cursor:pointer;transition:all .2s;}
-.lr-tab.active{background:#fff;color:var(--red);box-shadow:0 2px 6px rgba(0,0,0,0.08);}
-.lf-group{margin-bottom:14px;}
-.lf-label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
-.lf-input{width:100%;background:#F9FAFB;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:14px;outline:none;transition:border-color .2s;font-family:'Inter',sans-serif;}
-.lf-input:focus{border-color:var(--red);background:#fff;}
-.login-btn{width:100%;background:var(--red);color:#fff;border:none;padding:13px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;font-family:'Inter',sans-serif;transition:background .2s;}
-.login-btn:hover{background:var(--red2);}
-.login-info{margin-top:16px;background:#FFF8E1;border-radius:10px;padding:12px;font-size:12px;color:#78350F;line-height:1.5;}
+/* APP */
+.app{width:100%;max-width:480px;min-height:100vh;margin:0 auto;background:var(--white);display:flex;flex-direction:column;position:relative;overflow-x:hidden;}
 
-/* ── PANEL LAYOUT ── */
-#panelScreen{display:none;min-height:100vh;}
-.panel-wrap{display:flex;width:100%;min-height:100vh;}
+/* SCREENS */
+.screen{display:none;flex:1;flex-direction:column;}
+.screen.active{display:flex;}
+#scr-home{flex:1;flex-direction:column;}
 
-/* SIDEBAR */
-.sidebar{
-  width:240px;flex-shrink:0;
-  background:var(--sidebar);
-  display:flex;flex-direction:column;
-  position:sticky;top:0;height:100vh;
-}
-.sb-brand{
-  padding:24px 20px 20px;
-  border-bottom:1px solid rgba(255,255,255,0.08);
-}
-.sb-brand-name{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;font-style:italic;color:#fff;line-height:1.1;}
-.sb-brand-sub{font-size:10px;color:rgba(255,255,255,0.45);margin-top:3px;letter-spacing:0.5px;}
-.sb-user{
-  padding:16px 20px;
-  border-bottom:1px solid rgba(255,255,255,0.08);
-  display:flex;align-items:center;gap:12px;
-}
-.sb-ava{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
-.sb-uname{font-size:13px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.sb-urole{font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;}
-.sb-nav{flex:1;padding:12px 0;overflow-y:auto;}
-.nav-section{padding:6px 20px 4px;font-size:9px;font-weight:800;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1.5px;}
-.nav-link{
-  display:flex;align-items:center;gap:12px;
-  padding:10px 20px;cursor:pointer;
-  color:rgba(255,255,255,0.65);font-size:13px;font-weight:600;
-  transition:all .2s;position:relative;
-}
-.nav-link:hover{background:rgba(255,255,255,0.07);color:#fff;}
-.nav-link.active{background:rgba(211,47,47,0.25);color:#fff;}
-.nav-link.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--red);border-radius:0 2px 2px 0;}
-.nav-link .ni{font-size:16px;width:20px;text-align:center;}
-.sb-logout{padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);}
-.logout-btn{width:100%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);padding:9px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:all .2s;}
-.logout-btn:hover{background:rgba(211,47,47,0.3);color:#fff;border-color:var(--red);}
+/* HEADER */
+.app-header{background:var(--red);padding:14px 16px 12px;flex-shrink:0;position:sticky;top:0;z-index:50;}
+.ah-row{display:flex;align-items:center;justify-content:space-between;}
+.burger{display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:4px;}
+.burger span{display:block;height:2px;background:#fff;border-radius:1px;}
+.burger span:nth-child(1){width:22px;}.burger span:nth-child(2){width:14px;}.burger span:nth-child(3){width:22px;}
+.ah-brand{text-align:center;}
+.ah-name{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;font-style:italic;color:#fff;line-height:1.1;}
+.ah-sub{font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:0.3px;margin-top:1px;}
+.ah-right{display:flex;align-items:center;gap:8px;}
+.notif-btn{position:relative;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center;}
+.notif-btn svg{width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2;}
+.notif-badge{position:absolute;top:2px;right:2px;background:var(--gold);color:#000;font-size:9px;font-weight:800;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--red);}
+.user-photo{width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,0.7);background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;}
+#adminHeaderLink{display:none;}
 
-/* MAIN CONTENT */
-.main-content{flex:1;overflow-y:auto;background:var(--bg);}
-.page{display:none;padding:28px;}
-.page.active{display:block;}
-.page-header{margin-bottom:24px;}
-.page-title{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:var(--ink);}
-.page-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+/* QUICK ACTIONS */
+.qa-section{background:var(--white);padding:12px 14px;border-bottom:1px solid #F0F0F0;flex-shrink:0;}
+.qa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.qa-card{background:var(--white);border:1px solid #E8E8E8;border-radius:12px;padding:10px 6px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;transition:background .15s;}
+.qa-card:active{background:#F5F5F5;}
+.qa-icon-box{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.qa-title{font-size:11px;font-weight:700;color:var(--ink);text-align:center;line-height:1.2;}
+.qa-sub{font-size:9px;color:var(--muted);text-align:center;}
 
-/* DASHBOARD STATS */
-.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;}
-.stat-card{background:#fff;border-radius:14px;padding:20px;border:1px solid var(--border);position:relative;overflow:hidden;}
-.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--red));}
-.stat-icon{font-size:28px;margin-bottom:10px;}
-.stat-num{font-size:32px;font-weight:800;color:var(--ink);line-height:1;}
-.stat-label{font-size:12px;color:var(--muted);margin-top:4px;font-weight:600;}
+/* SCROLL */
+.scroll-area{flex:1;overflow-y:auto;background:var(--bg);-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.scroll-area::-webkit-scrollbar{display:none;}
 
-/* SECTION CARD */
-.section-card{background:#fff;border-radius:14px;border:1px solid var(--border);margin-bottom:20px;overflow:hidden;}
-.section-card-head{
-  padding:16px 20px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;
-}
-.section-card-title{font-size:15px;font-weight:800;color:var(--ink);}
-.section-card-sub{font-size:12px;color:var(--muted);}
+/* SECTION HEAD */
+.sec-head{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;}
+.sec-left{display:flex;align-items:center;gap:8px;}
+.sec-icon{font-size:14px;}
+.sec-title{font-size:16px;font-weight:800;color:var(--ink);}
+.sec-sub{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px;}
+.see-all{font-size:13px;color:var(--ink);font-weight:500;text-decoration:none;}
 
-/* FILTRE BUTONLARI */
-.filtre-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
-.filtre-btn{padding:7px 16px;border-radius:20px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .2s;font-family:'Inter',sans-serif;}
-.filtre-btn.active{background:var(--red);border-color:var(--red);color:#fff;}
+/* PANO */
+.pano-row{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:0 14px 12px;}
+.pano-row::-webkit-scrollbar{display:none;}
+.pano-card{flex-shrink:0;width:160px;height:200px;border-radius:14px;overflow:hidden;background:var(--white);border:1px solid var(--border);cursor:pointer;transition:transform .15s;position:relative;}
+.pano-card:active{transform:scale(0.97);}
+.pc-bg{position:absolute;inset:0;background-size:cover;background-position:center;}
+.pc-ov{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.78) 40%,transparent 100%);}
+.pc-tag-abs{position:absolute;top:10px;left:10px;font-size:9px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;padding:3px 8px;border-radius:20px;color:#fff;}
+.pc-body-abs{position:absolute;bottom:0;left:0;right:0;padding:12px;}
+.pc-title-w{font-size:14px;font-weight:800;color:#fff;line-height:1.25;}
+.pc-time-w{font-size:10px;color:rgba(255,255,255,0.55);margin-top:6px;}
+.light-card{padding:14px;display:flex;flex-direction:column;}
+.pc-tag-top{display:inline-flex;font-size:9px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;padding:3px 8px;border-radius:20px;color:#fff;align-self:flex-start;}
+.lc-img{font-size:34px;margin:8px auto 0;text-align:center;}
+.pc-title-d{font-size:13px;font-weight:800;color:var(--ink);line-height:1.3;margin-top:8px;}
+.pc-desc-d{font-size:11px;color:#636366;margin-top:5px;line-height:1.4;}
+.pc-time-d{font-size:10px;color:var(--muted);margin-top:auto;padding-top:8px;}
 
-/* LIST ROW */
-.list-row{
-  padding:14px 18px;border-bottom:1px solid var(--border);
-  display:flex;flex-direction:column;gap:10px;
-  transition:background .15s;
-}
-.list-row:last-child{border-bottom:none;}
-.list-row:hover{background:#FAFAFA;}
-.row-main{display:flex;gap:12px;align-items:flex-start;}
-.row-thumb{width:72px;height:72px;border-radius:10px;object-fit:cover;flex-shrink:0;}
-.row-thumb-placeholder{width:72px;height:72px;border-radius:10px;background:#F3F4F6;display:flex;align-items:center;justify-content:center;font-size:30px;flex-shrink:0;}
-.row-body{flex:1;min-width:0;}
-.row-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;}
-.row-title{font-size:14px;font-weight:700;color:var(--ink);line-height:1.35;}
-.row-meta{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
-.row-excerpt{font-size:12px;color:#4B5563;margin-top:5px;line-height:1.4;}
-.row-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px;}
-.row-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;}
-.status-pending{background:#FFF8E1;color:#92400E;}
-.status-approved{background:#ECFDF5;color:#065F46;}
-.status-rejected{background:#FEF2F2;color:#7F1D1D;}
+/* HERO */
+.hero-section{padding:0 0 4px;}
+.hero-card{position:relative;height:260px;overflow:hidden;cursor:pointer;background:#1a0a00;}
+.hero-bg{position:absolute;inset:0;background:linear-gradient(100deg,#1C0A00 0%,#3A1800 50%,#2C1400 100%);display:flex;align-items:center;justify-content:flex-end;background-size:cover;background-position:center;}
+.hero-truck{font-size:160px;margin-right:-20px;margin-bottom:-20px;opacity:0.35;filter:saturate(0.5);}
+.hero-ov{position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.9) 40%,rgba(0,0,0,0.25) 100%);}
+.sd-pill{display:inline-flex;align-items:center;gap:6px;background:var(--red);color:#fff;font-size:11px;font-weight:800;padding:5px 10px;border-radius:5px;margin-bottom:14px;}
+.sd-dot{width:6px;height:6px;background:#fff;border-radius:50%;animation:blink 1s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+.hero-body{position:absolute;left:0;top:0;right:0;bottom:0;padding:20px 18px;display:flex;flex-direction:column;justify-content:flex-end;}
+.hero-title{font-size:24px;font-weight:800;color:#fff;line-height:1.15;margin-bottom:10px;}
+.hero-excerpt{font-size:13px;color:rgba(255,255,255,0.78);line-height:1.55;margin-bottom:12px;}
+.hero-time{font-size:12px;color:rgba(255,255,255,0.5);font-weight:500;}
+.hero-num{position:absolute;top:16px;right:16px;background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.85);font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid rgba(255,255,255,0.15);}
+.slider-dots{display:flex;justify-content:center;gap:7px;padding:10px 0 4px;background:var(--bg);}
+.slider-dots span{width:24px;height:4px;border-radius:2px;background:#D0D0D5;cursor:pointer;}
+.slider-dots span.active{background:var(--red);}
 
-/* BUTTONS */
-.btn-onay,.btn-red,.btn-edit,.btn-del{
-  padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;
-  cursor:pointer;border:none;font-family:'Inter',sans-serif;transition:all .2s;
-}
-.btn-onay{background:#ECFDF5;color:#065F46;border:1px solid #D1FAE5;}
-.btn-onay:hover{background:#D1FAE5;}
-.btn-red{background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA;}
-.btn-red:hover{background:#FECACA;}
-.btn-edit{background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;}
-.btn-edit:hover{background:#BFDBFE;}
-.btn-del{background:#F9FAFB;color:#6B7280;border:1px solid var(--border);}
-.btn-del:hover{background:#FEE2E2;color:#B91C1C;border-color:#FECACA;}
+/* ESNAF */
+.esnaf-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 14px 14px;}
+.esnaf-card{background:var(--white);border-radius:12px;padding:10px 8px;cursor:pointer;border:1px solid var(--border);}
+.esnaf-card:active{opacity:.8;}
+.ec-logo{width:100%;aspect-ratio:1;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:6px;}
+.ec-name{font-size:10px;font-weight:800;color:var(--ink);line-height:1.2;text-align:center;}
+.ec-offer{font-size:9px;color:#636366;line-height:1.3;text-align:center;margin-top:3px;}
+.ec-phone{font-size:8px;color:var(--muted);margin-top:5px;text-align:center;}
 
-/* TAGS */
-.tag{font-size:9px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;padding:2px 7px;border-radius:20px;color:#fff;}
-.tag-kayip{background:#7B1FA2;}.tag-acil{background:#C62828;}.tag-satilik{background:#2E7D32;}
-.tag-duyuru{background:#1565C0;}.tag-sorun{background:#BF360C;}.tag-vefat{background:#37474F;}
-.tag-foto{background:#0277BD;}.tag-etkinlik{background:#558B2F;}
+/* ARŞİV */
+.arsiv-section{background:var(--bg);padding-bottom:12px;}
+.arsiv-item{background:var(--white);margin:0 14px 8px;border-radius:14px;padding:12px;display:flex;gap:12px;align-items:center;cursor:pointer;border:1px solid var(--border);}
+.arsiv-item:active{opacity:.8;}
+.arsiv-thumb{width:70px;height:70px;border-radius:10px;background:var(--bg);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:32px;overflow:hidden;}
+.arsiv-body{flex:1;min-width:0;}
+.arsiv-title{font-size:14px;font-weight:700;color:var(--ink);line-height:1.3;}
+.arsiv-excerpt{font-size:12px;color:#636366;margin-top:3px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.arsiv-time{font-size:11px;color:var(--muted);margin-top:6px;}
 
-/* FORM */
-.form-card{background:#fff;border-radius:14px;border:1px solid var(--border);padding:24px;margin-bottom:20px;}
-.form-title{font-size:16px;font-weight:800;color:var(--ink);margin-bottom:18px;display:flex;align-items:center;gap:8px;}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.form-grid.full{grid-template-columns:1fr;}
-.fg{display:flex;flex-direction:column;gap:5px;}
-.fg.span2{grid-column:1/-1;}
-.fg label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;}
-.fg input,.fg textarea,.fg select{
-  padding:10px 13px;border:1.5px solid var(--border);border-radius:10px;
-  font-size:13px;font-family:'Inter',sans-serif;outline:none;
-  background:#F9FAFB;transition:border-color .2s;
-}
-.fg input:focus,.fg textarea:focus,.fg select:focus{border-color:var(--red);background:#fff;}
-.fg textarea{resize:vertical;min-height:80px;}
-.form-actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
-.form-btn{padding:11px 24px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:none;font-family:'Inter',sans-serif;transition:all .2s;}
-.form-btn.primary{background:var(--red);color:#fff;}
-.form-btn.primary:hover{background:var(--red2);}
-.form-btn.secondary{background:#F3F4F6;color:var(--muted);border:1px solid var(--border);}
-.form-btn.secondary:hover{background:#E5E7EB;}
-.form-btn:disabled{opacity:.65;cursor:not-allowed;}
-.checkbox-row{display:flex;align-items:center;gap:10px;padding:10px 0;}
-.checkbox-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--red);}
-.checkbox-row label{font-size:13px;font-weight:600;color:var(--ink);}
-.upload-zone{border:2px dashed var(--border);border-radius:12px;padding:20px;text-align:center;cursor:pointer;background:#F9FAFB;position:relative;}
+/* BOTTOM NAV */
+.bottom-nav{background:var(--white);border-top:0.5px solid #C6C6C8;display:flex;align-items:center;padding:10px 0 18px;flex-shrink:0;position:sticky;bottom:0;z-index:50;}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;}
+.nav-item:active{opacity:.6;}
+.nav-lbl{font-size:10px;font-weight:600;color:var(--muted);}
+.nav-item.active .nav-lbl{color:var(--red);}
+.nav-ico{width:24px;height:24px;display:flex;align-items:center;justify-content:center;position:relative;}
+.nb-badge{position:absolute;top:-2px;right:-4px;background:var(--red);color:#fff;font-size:8px;font-weight:800;width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+.gonder-fab{flex:0 0 72px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;position:relative;top:-16px;}
+.fab-btn{width:56px;height:56px;background:var(--red);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(211,47,47,0.5);border:3px solid var(--white);font-size:28px;color:#fff;font-weight:300;line-height:1;}
+.gonder-fab .nav-lbl{color:var(--ink2);}
+
+/* PAGE SCREENS (non-home) */
+.page-screen{flex:1;overflow-y:auto;background:var(--bg);}
+.page-screen-header{background:var(--white);padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+.psh-back{font-size:22px;cursor:pointer;color:var(--red);font-weight:700;background:none;border:none;padding:0;}
+.psh-title{font-size:17px;font-weight:800;color:var(--ink);}
+
+/* SEARCH */
+.search-box-wrap{padding:12px 14px;background:var(--white);border-bottom:1px solid var(--border);}
+.search-box{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:11px 14px;font-size:14px;font-family:'Inter',sans-serif;outline:none;}
+.search-box:focus{border-color:var(--red);}
+.search-item{background:var(--white);margin:0 14px 8px;border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center;cursor:pointer;border:1px solid var(--border);}
+.search-item:active{opacity:.8;}
+.si-icon{font-size:28px;flex-shrink:0;}
+.si-body{flex:1;min-width:0;}
+.si-type{font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px;}
+.si-title{font-size:13px;font-weight:700;color:var(--ink);line-height:1.3;}
+.si-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+
+/* NOTIFICATIONS */
+.notif-item{background:var(--white);margin:0 14px 8px;border-radius:12px;padding:14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:1px solid var(--border);}
+.notif-item:active{opacity:.8;}
+.ni-icon{font-size:26px;flex-shrink:0;}
+.ni-body{flex:1;}
+.ni-title{font-size:13px;font-weight:700;color:var(--ink);line-height:1.35;}
+.ni-meta{font-size:11px;color:var(--muted);margin-top:4px;}
+
+/* VEFAT */
+.vefat-card{background:var(--white);margin:0 14px 8px;border-radius:14px;padding:16px;display:flex;gap:14px;border:1px solid var(--border);border-left:4px solid #37474F;}
+.vefat-icon{font-size:28px;flex-shrink:0;}
+.vefat-body{flex:1;}
+.vefat-name{font-size:16px;font-weight:800;color:var(--ink);}
+.vefat-info{font-size:12px;color:var(--muted);margin-top:3px;}
+.vefat-cami{font-size:12px;color:var(--ink2);font-weight:700;margin-top:6px;}
+.vefat-saat{font-size:12px;color:var(--ink2);margin-top:2px;}
+.vefat-tel{font-size:12px;color:var(--red);margin-top:2px;}
+.vefat-time{font-size:10px;color:var(--muted);margin-top:8px;}
+
+/* ECZANE */
+.eczane-card{background:var(--white);margin:0 14px 10px;border-radius:14px;padding:16px;display:flex;gap:14px;align-items:center;border:1px solid var(--border);}
+.ez-icon{font-size:32px;flex-shrink:0;}
+.ez-body{flex:1;}
+.ez-name{font-size:15px;font-weight:800;color:var(--ink);}
+.ez-adres{font-size:12px;color:var(--muted);margin-top:3px;}
+.ez-tel{font-size:13px;font-weight:700;color:var(--red);margin-top:5px;display:block;text-decoration:none;}
+.ez-badge{background:#E8F5E9;color:#2E7D32;font-size:10px;font-weight:800;padding:4px 10px;border-radius:20px;flex-shrink:0;}
+
+/* MAHALLE KÜRSÜSÜ */
+.kursus-hero{background:linear-gradient(135deg,var(--ink) 0%,#3D2E1A 100%);margin:14px;border-radius:16px;padding:20px;color:#fff;}
+.kh-title{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:6px;}
+.kh-sub{font-size:12px;color:rgba(255,255,255,0.7);line-height:1.5;margin-bottom:14px;}
+.kh-btn{background:var(--red);color:#fff;border:none;padding:11px 20px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;font-family:'Inter',sans-serif;}
+.kursus-form{background:var(--white);margin:0 14px 14px;border-radius:14px;padding:16px;border:1px solid var(--border);display:none;}
+.kf-title{font-size:15px;font-weight:800;color:var(--ink);margin-bottom:14px;}
+.kf-input,.kf-textarea{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:10px 13px;font-size:13px;font-family:'Inter',sans-serif;outline:none;margin-bottom:10px;}
+.kf-input:focus,.kf-textarea:focus{border-color:var(--red);}
+.kf-textarea{resize:none;height:80px;}
+.kf-upload{border:2px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:var(--bg);position:relative;margin-bottom:10px;}
+.kf-upload input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.kf-upload p{font-size:12px;color:var(--muted);}
+.kf-submit{width:100%;background:var(--red);color:#fff;border:none;padding:13px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;font-family:'Inter',sans-serif;}
+.kursus-item{background:var(--white);margin:0 14px 10px;border-radius:14px;padding:14px;border:1px solid var(--border);}
+.ki-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+.ki-tag{font-size:9px;font-weight:800;padding:3px 8px;border-radius:20px;color:#fff;}
+.ki-tag-bekle{background:#F59E0B;}
+.ki-tag-ok{background:#10B981;}
+.ki-tag-info{background:#3B82F6;}
+.ki-time{font-size:10px;color:var(--muted);margin-left:auto;}
+.ki-img{width:100%;border-radius:10px;margin-bottom:8px;max-height:180px;object-fit:cover;}
+.ki-title{font-size:14px;font-weight:800;color:var(--ink);margin-bottom:5px;}
+.ki-body{font-size:12px;color:var(--ink2);line-height:1.5;margin-bottom:6px;}
+.ki-meta{font-size:11px;color:var(--muted);}
+
+/* PROFİL */
+.profile-top{background:linear-gradient(135deg,var(--red) 0%,var(--red2) 100%);padding:32px 20px 24px;text-align:center;}
+.profile-ava{font-size:52px;margin-bottom:10px;}
+.profile-name{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#fff;}
+.profile-email{font-size:12px;color:rgba(255,255,255,0.7);margin-top:3px;}
+.profile-stats{display:flex;justify-content:center;gap:32px;margin-top:16px;}
+.ps-item{text-align:center;}
+.ps-num{font-size:22px;font-weight:800;color:var(--gold);}
+.ps-lbl{font-size:10px;color:rgba(255,255,255,0.6);font-weight:600;margin-top:2px;}
+.profile-section-title{font-size:13px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:14px 14px 8px;}
+.profile-ilan-item{background:var(--white);margin:0 14px 8px;border-radius:12px;padding:12px 14px;border:1px solid var(--border);cursor:pointer;}
+.profile-ilan-item:active{opacity:.8;}
+.pii-tag{display:inline-block;font-size:8px;font-weight:800;padding:2px 7px;border-radius:20px;color:#fff;margin-bottom:6px;}
+.pii-title{font-size:13px;font-weight:700;color:var(--ink);line-height:1.3;}
+.pii-status{font-size:11px;font-weight:700;margin-top:4px;}
+.s-ok{color:#065F46;}.s-red{color:#B91C1C;}.s-wait{color:#92400E;}
+.pii-time{font-size:10px;color:var(--muted);margin-top:4px;}
+
+/* HABER DETAY */
+#scr-haber{background:var(--white);}
+.detail-header{padding:14px 16px;display:flex;align-items:center;background:var(--white);border-bottom:1px solid var(--border);}
+.back-btn{background:none;border:none;font-size:15px;font-weight:700;color:var(--red);cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;gap:4px;}
+.detail-hero-img{width:100%;max-height:240px;object-fit:cover;}
+.detail-hero-emoji{font-size:80px;text-align:center;padding:32px;background:var(--bg);}
+.detail-body{padding:20px;}
+.detail-category{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
+.detail-title{font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:var(--ink);line-height:1.25;margin-bottom:12px;}
+.detail-meta-row{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--muted);font-weight:600;}
+.detail-divider{height:1px;background:var(--border);margin:16px 0;}
+.detail-ozet{font-size:16px;color:var(--ink2);line-height:1.7;font-weight:500;margin-bottom:14px;}
+.detail-icerik{font-size:14px;color:var(--ink2);line-height:1.8;}
+
+/* OVERLAYS */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;align-items:flex-end;backdrop-filter:blur(4px);}
+.overlay.open{display:flex;}
+.bottom-sheet{width:100%;max-width:480px;margin:0 auto;background:var(--white);border-radius:20px 20px 0 0;padding:12px 20px 32px;animation:slideUp .32s cubic-bezier(.34,1.4,.64,1);max-height:88%;overflow-y:auto;}
+@keyframes slideUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+.bs-handle{width:36px;height:4px;background:#E0E0E5;border-radius:2px;margin:0 auto 16px;}
+.bs-title{font-size:18px;font-weight:800;color:var(--ink);margin-bottom:16px;}
+.f-row{margin-bottom:14px;}
+.f-label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
+.f-input,.f-select,.f-textarea{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;font-family:'Inter',sans-serif;font-size:14px;font-weight:500;color:var(--ink);outline:none;transition:border-color .2s;-webkit-appearance:none;}
+.f-input:focus,.f-select:focus,.f-textarea:focus{border-color:var(--red);background:var(--white);}
+.f-textarea{resize:none;height:80px;}
+.upload-zone{border:2px dashed var(--border);border-radius:14px;padding:20px;text-align:center;cursor:pointer;background:var(--bg);position:relative;}
 .upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
-.upload-zone p{font-size:13px;color:var(--muted);font-weight:600;}
+.uz-icon{font-size:32px;margin-bottom:8px;}
+.uz-text{font-size:13px;font-weight:600;color:var(--muted);}
+.uz-hint{font-size:11px;color:#AEAEB2;margin-top:3px;}
+.send-btn{width:100%;background:var(--red);color:#fff;border:none;padding:15px;border-radius:14px;font-family:'Inter',sans-serif;font-size:15px;font-weight:800;cursor:pointer;margin-top:6px;}
+.send-btn:active{background:var(--red2);}
+.note-box{margin-top:10px;background:#FFF8E1;border-radius:10px;padding:10px 13px;font-size:12px;font-weight:600;color:#795800;display:flex;align-items:center;gap:7px;}
 
-/* DASH ITEMS */
-.dash-item{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
-.dash-item:last-child{border-bottom:none;}
-.di-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0;}
-.di-title{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.di-meta{font-size:11px;color:var(--muted);}
-.di-actions{display:flex;gap:6px;flex-shrink:0;}
+/* USER PANEL */
+.side-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;backdrop-filter:blur(3px);}
+.side-overlay.open{display:block;}
+.side-sheet{position:absolute;top:0;right:0;width:280px;height:100%;background:var(--white);animation:sfr .28s cubic-bezier(.34,1.2,.64,1);display:flex;flex-direction:column;max-width:80vw;}
+@keyframes sfr{from{transform:translateX(100%);}to{transform:translateX(0);}}
+.ss-top{background:var(--red);padding:50px 20px 20px;}
+.ss-ava{width:64px;height:64px;border-radius:50%;border:2.5px solid rgba(255,255,255,0.6);background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:10px;}
+.ss-name{font-size:18px;font-weight:800;color:#fff;font-family:'Playfair Display',serif;}
+.ss-badge{font-size:11px;color:rgba(255,255,255,0.7);font-weight:600;margin-top:3px;}
+.ss-stats{display:flex;gap:20px;margin-top:14px;}
+.ss-sn{font-size:22px;font-weight:800;color:var(--gold);}
+.ss-sl{font-size:10px;color:rgba(255,255,255,0.6);font-weight:600;}
+.ss-menu{flex:1;overflow-y:auto;padding:12px 0;}
+.ss-item{display:flex;align-items:center;gap:14px;padding:13px 20px;cursor:pointer;transition:background .15s;}
+.ss-item:active{background:var(--bg);}
+.ss-ico{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.ss-it{font-size:14px;font-weight:700;color:var(--ink);}
+.ss-is{font-size:11px;color:var(--muted);}
+.ss-arr{margin-left:auto;color:#C6C6C8;font-size:20px;}
+.ss-div{height:0.5px;background:var(--border);margin:3px 20px;}
+.logout-btn2{margin:0 20px 20px;padding:13px;background:#FFEBEE;border:1.5px solid #FFCDD2;border-radius:12px;color:var(--red);font-size:13px;font-weight:800;text-align:center;cursor:pointer;display:none;}
 
-/* UTILS */
-.loading{padding:32px;text-align:center;color:var(--muted);font-size:13px;}
-.empty-state{padding:40px;text-align:center;color:var(--muted);font-size:14px;}
-.spin{display:inline-block;width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite;margin-bottom:8px;}
-@keyframes spin{to{transform:rotate(360deg);}}
+/* LOGIN */
+.login-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(5px);}
+.login-overlay.open{display:flex;}
+.login-box{width:calc(100% - 40px);max-width:400px;background:var(--white);border-radius:22px;overflow:hidden;animation:popUp .3s cubic-bezier(.34,1.5,.64,1);}
+@keyframes popUp{from{opacity:0;transform:scale(.85);}to{opacity:1;transform:scale(1);}}
+.lb-head{background:var(--red);padding:28px 20px;text-align:center;position:relative;}
+.lb-ico{width:60px;height:60px;background:rgba(255,255,255,0.2);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 10px;}
+.lb-title{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:#fff;}
+.lb-sub{font-size:12px;color:rgba(255,255,255,0.7);margin-top:4px;}
+.lb-close{position:absolute;top:12px;right:12px;width:28px;height:28px;background:rgba(255,255,255,0.2);border:none;border-radius:50%;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.lb-body{padding:20px;}
+.lb-tabs{display:flex;background:var(--bg);border-radius:12px;padding:3px;margin-bottom:16px;}
+.lb-tab{flex:1;padding:8px;text-align:center;font-size:13px;font-weight:700;color:var(--muted);border-radius:10px;cursor:pointer;transition:all .2s;}
+.lb-tab.active{background:var(--white);color:var(--red);box-shadow:0 2px 8px rgba(0,0,0,0.08);}
+.lb-btn{width:100%;background:var(--red);color:#fff;border:none;padding:14px;border-radius:13px;font-family:'Inter',sans-serif;font-size:15px;font-weight:800;cursor:pointer;margin-top:4px;}
+.lb-btn:active{background:var(--red2);}
+.lb-div{text-align:center;font-size:12px;color:var(--muted);margin:14px 0;font-weight:600;position:relative;}
+.lb-div::before,.lb-div::after{content:'';position:absolute;top:50%;width:37%;height:0.5px;background:var(--border);}
+.lb-div::before{left:0;}.lb-div::after{right:0;}
+.soc-btn{width:100%;border:1.5px solid var(--border);background:var(--white);padding:12px;border-radius:12px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px;}
+
+/* HESAP TÜRÜ KART */
+.hesap-turu-kart{border:2px solid var(--border);border-radius:14px;padding:14px 10px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg);}
+.hesap-turu-kart.active{border-color:var(--red);background:#FFF5F5;}
+.hesap-turu-kart:active{opacity:.8;}
+
+/* ESNAF PANELİ MODAL */
+.esnaf-panel-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:300;align-items:flex-end;backdrop-filter:blur(5px);}
+.esnaf-panel-overlay.open{display:flex;}
+.esnaf-panel-sheet{width:100%;max-width:480px;margin:0 auto;background:var(--white);border-radius:20px 20px 0 0;padding:12px 20px 40px;max-height:92%;overflow-y:auto;animation:slideUp .32s cubic-bezier(.34,1.4,.64,1);}
+.ep-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.ep-title{font-size:18px;font-weight:800;color:var(--ink);}
+.ep-close{width:30px;height:30px;border-radius:50%;background:var(--bg);border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.ep-status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;margin-bottom:16px;}
+.ep-status-pending{background:#FFF8E1;color:#92400E;}
+.ep-status-approved{background:#ECFDF5;color:#065F46;}
+.ep-kampanya-list{margin-bottom:16px;}
+.ep-kamp-item{background:var(--bg);border-radius:12px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.ep-kamp-text{font-size:13px;font-weight:600;color:var(--ink);flex:1;}
+.ep-kamp-meta{font-size:10px;color:var(--muted);margin-top:3px;}
+.ep-kamp-sil{background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);padding:2px;}
+.ep-kamp-sil:hover{color:var(--red);}
+
+/* İLAN DETAY MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:250;align-items:flex-end;backdrop-filter:blur(4px);}
+.modal-overlay.open{display:flex;}
+.modal-sheet{width:100%;max-width:480px;margin:0 auto;background:var(--white);border-radius:20px 20px 0 0;padding:16px 20px 36px;max-height:85%;overflow-y:auto;animation:slideUp .3s cubic-bezier(.34,1.4,.64,1);}
+.modal-handle{width:36px;height:4px;background:#E0DDD8;border-radius:2px;margin:0 auto 16px;}
+.modal-close{float:right;font-size:22px;cursor:pointer;color:var(--muted);line-height:1;background:none;border:none;}
+.modal-img{width:100%;border-radius:14px;margin-bottom:14px;max-height:200px;object-fit:cover;display:none;}
+.modal-title{font-size:20px;font-weight:800;color:var(--ink);line-height:1.3;margin-bottom:10px;}
+.modal-body-text{font-size:14px;color:var(--ink2);line-height:1.6;margin-bottom:12px;}
+.modal-meta{font-size:12px;color:var(--muted);font-weight:500;}
+.modal-time{font-size:11px;color:#AEAEB2;margin-top:6px;}
+.modal-author{font-size:12px;color:var(--muted);margin-top:4px;}
+.call-btn{width:100%;background:#E8F5E9;color:#1B5E20;border:1.5px solid #C8E6C9;padding:13px;border-radius:12px;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;margin-top:14px;}
+
+/* LOADING */
+.loading-sm{padding:20px;text-align:center;color:var(--muted);font-size:13px;}
+.empty-card{padding:32px;text-align:center;color:var(--muted);font-size:14px;}
+
+/* KAMPANYA KARTI */
+.kampanya-kart{background:var(--white);border-radius:14px;border:1.5px solid #FFE0B2;padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start;cursor:default;}
+.kk-ico{width:44px;height:44px;border-radius:12px;background:#FFF3E0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.kk-body{flex:1;min-width:0;}
+.kk-esnaf{font-size:11px;font-weight:800;color:#E65100;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;}
+.kk-mesaj{font-size:14px;font-weight:700;color:var(--ink);line-height:1.4;}
+.kk-time{font-size:10px;color:var(--muted);margin-top:4px;}
 
 /* TOAST */
-#toast{position:fixed;bottom:24px;right:24px;background:#1B5E20;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;font-weight:700;opacity:0;transition:all .3s;pointer-events:none;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,0.2);}
-#toast.show{opacity:1;}
-
-@media(max-width:768px){
-  .sidebar{width:200px;}
-  .stats-grid{grid-template-columns:repeat(2,1fr);}
-  .form-grid{grid-template-columns:1fr;}
-}
-@media(max-width:600px){
-  .sidebar{display:none;}
-  .stats-grid{grid-template-columns:1fr 1fr;}
-}
+#toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:#1B5E20;color:#fff;padding:11px 20px;border-radius:24px;font-size:13px;font-weight:700;opacity:0;transition:all .3s;pointer-events:none;z-index:500;white-space:nowrap;max-width:90vw;text-align:center;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 </head>
 <body>
+<div class="app">
 
-<!-- ══ LOGIN ══ -->
-<div id="loginScreen">
+  <!-- ── HEADER (her sayfada görünür) ── -->
+  <div class="app-header">
+    <div class="ah-row">
+      <div class="burger" onclick="openUserPanel()"><span></span><span></span><span></span></div>
+      <div class="ah-brand">
+        <div class="ah-name">Mutlular Haber</div>
+        <div class="ah-sub">Mahallenin Sesi, Hepimizin Haberi</div>
+      </div>
+      <div class="ah-right">
+        <a id="adminHeaderLink" href="mutlular-admin.html" target="_blank" style="display:none;align-items:center;gap:4px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.3);border-radius:20px;padding:5px 10px;text-decoration:none;font-size:11px;font-weight:800;color:#fff;">⚙️ Panel</a>
+        <div class="notif-btn" onclick="goPage('notifications')">
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-badge" id="notifBadge">3</span>
+        </div>
+        <div class="user-photo" id="avatarBtn" onclick="openUserPanel()">👤</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: HOME
+  ════════════════════════════════ -->
+  <div class="screen active" id="scr-home">
+    <!-- Quick Actions -->
+    <div class="qa-section">
+      <div class="qa-grid">
+        <div class="qa-card" onclick="goPage('kursus')">
+          <div class="qa-icon-box" style="background:#FFF3E0;">📢</div>
+          <div class="qa-title">Söz Hakkı</div>
+          <div class="qa-sub">Sorun Bildir</div>
+        </div>
+        <div class="qa-card" onclick="openShare()">
+          <div class="qa-icon-box" style="background:#F3E5F5;">🔍</div>
+          <div class="qa-title">Kayıp İlanı</div>
+          <div class="qa-sub">İlan Ver</div>
+        </div>
+        <div class="qa-card" onclick="goPage('vefat')">
+          <div class="qa-icon-box" style="background:#ECEFF1;">🕊️</div>
+          <div class="qa-title">Vefat</div>
+          <div class="qa-sub">Bildirimler</div>
+        </div>
+        <div class="qa-card" onclick="goPage('eczane')">
+          <div class="qa-icon-box" style="background:#E8F5E9;">💊</div>
+          <div class="qa-title">Nöbetçi</div>
+          <div class="qa-sub">Eczane</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scroll -->
+    <div class="scroll-area">
+
+      <!-- MAHALLE PANOSU -->
+      <div class="sec-head">
+        <div class="sec-left">
+          <span class="sec-icon">📌</span>
+          <div>
+            <div class="sec-title">Mahalle Panosu</div>
+            <div class="sec-sub">İlanlar &amp; Duyurular</div>
+          </div>
+        </div>
+        <a class="see-all" href="#">Tümünü Gör →</a>
+      </div>
+      <div class="pano-row" id="panoRow">
+        <div class="empty-card">⏳ Yükleniyor…</div>
+      </div>
+
+      <!-- SON DAKİKA HERO -->
+      <div class="hero-section">
+        <div class="hero-card" id="heroCard">
+          <div class="hero-bg" id="heroBg">
+            <div class="hero-truck" id="heroTruck">🚛</div>
+          </div>
+          <div class="hero-ov"></div>
+          <div class="hero-num" id="heroNum">1/1</div>
+          <div class="hero-body">
+            <div class="sd-pill"><span class="sd-dot"></span>SON DAKİKA</div>
+            <div class="hero-title"  id="heroTitle">Haberler yükleniyor…</div>
+            <div class="hero-excerpt" id="heroExcerpt"></div>
+            <div class="hero-time"    id="heroTime"></div>
+          </div>
+        </div>
+        <div class="slider-dots" id="sliderDots">
+          <span class="active"></span>
+        </div>
+      </div>
+
+      <!-- MAHALLE ESNAFI -->
+      <div class="sec-head">
+        <div class="sec-title">Mahalle Esnafı</div>
+        <a class="see-all" href="#">Tümünü Gör →</a>
+      </div>
+      <div class="esnaf-row" id="esnafRow">
+        <div class="empty-card" style="grid-column:1/-1;">⏳ Yükleniyor…</div>
+      </div>
+
+      <!-- ESNAF KAMPANYALARI -->
+      <div id="kampanyaSection" style="display:none;">
+        <div class="sec-head" style="margin-top:4px;">
+          <div class="sec-left">
+            <span class="sec-icon">📢</span>
+            <div>
+              <div class="sec-title">Esnaf Kampanyaları</div>
+              <div class="sec-sub">Güncel fırsatlar</div>
+            </div>
+          </div>
+        </div>
+        <div id="kampanyaHomeList" style="padding:0 14px 4px;"></div>
+      </div>
+
+      <!-- MAHALLE ARŞİVİ -->
+      <div class="arsiv-section">
+        <div class="sec-head">
+          <div class="sec-left">
+            <span class="sec-icon">📄</span>
+            <div>
+              <div class="sec-title">Mahalle Arşivi</div>
+              <div class="sec-sub">Geçmiş haberler</div>
+            </div>
+          </div>
+          <a class="see-all" href="#">Tümünü Gör →</a>
+        </div>
+        <div id="arsivList"><div class="empty-card">⏳ Yükleniyor…</div></div>
+      </div>
+
+      <div style="height:12px;background:var(--bg);"></div>
+    </div><!-- /scroll -->
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: SEARCH
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-search">
+    <div class="search-box-wrap">
+      <input type="search" class="search-box" placeholder="🔍 Haber, ilan, esnaf ara…"
+             oninput="onSearchInput(this.value)">
+    </div>
+    <div style="flex:1;overflow-y:auto;padding-top:10px;" id="searchResults">
+      <div style="padding:40px;text-align:center;color:var(--muted);font-size:14px;">🔍 Aramak istediğinizi yazın</div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: NOTIFICATIONS
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-notifications">
+    <div class="page-screen-header">
+      <button class="psh-back" onclick="goPage('home')">←</button>
+      <div class="psh-title">🔔 Bildirimler</div>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding-top:10px;" id="notifList"></div>
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: PROFILE
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-profile">
+    <div style="flex:1;overflow-y:auto;" id="profileContent"></div>
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: HABER DETAY
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-haber"></div>
+
+  <!-- ════════════════════════════════
+       SCREEN: VEFAT
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-vefat">
+    <div class="page-screen-header">
+      <button class="psh-back" onclick="goPage('home')">←</button>
+      <div class="psh-title">🕊️ Vefat Bildirimleri</div>
+    </div>
+    <div style="flex:1;overflow-y:auto;background:var(--bg);padding-top:10px;" id="vefatList"></div>
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: ECZANE
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-eczane">
+    <div class="page-screen-header">
+      <button class="psh-back" onclick="goPage('home')">←</button>
+      <div class="psh-title">💊 Nöbetçi Eczane</div>
+    </div>
+    <div style="background:#FFF8E1;padding:12px 14px;border-bottom:1px solid #FFE082;">
+      <div style="font-size:12px;font-weight:600;color:#78350F;">📅 Bugün nöbetçi olan eczaneler</div>
+    </div>
+    <div style="flex:1;overflow-y:auto;background:var(--bg);padding-top:10px;" id="eczaneList"></div>
+  </div>
+
+  <!-- ════════════════════════════════
+       SCREEN: MAHALLE KÜRSÜSÜ
+  ════════════════════════════════ -->
+  <div class="screen" id="scr-kursus">
+    <div class="page-screen-header">
+      <button class="psh-back" onclick="goPage('home')">←</button>
+      <div class="psh-title">📢 Mahalle Kürsüsü</div>
+    </div>
+    <div style="flex:1;overflow-y:auto;background:var(--bg);">
+      <div class="kursus-hero">
+        <div class="kh-title">Mahallenin Sesi Ol</div>
+        <div class="kh-sub">Bir sorun mu gördünüz? Fotoğraflayın, bildirin. Belediyeye iletiyoruz, çözümü takip ediyoruz.</div>
+        <button class="kh-btn" onclick="toggleKursusForm()">📢 Sorun Bildir</button>
+      </div>
+      <!-- Form -->
+      <div class="kursus-form" id="kursusForm">
+        <div class="kf-title">🖊️ Sorun Bildir</div>
+        <input type="text" class="kf-input" id="kBaslik" placeholder="Sorunun başlığı…">
+        <textarea class="kf-textarea" id="kAciklama" placeholder="Detayları açıklayın…"></textarea>
+        <input type="text" class="kf-input" id="kKonum" placeholder="📍 Konum (Sokak / Cadde)">
+        <div class="kf-upload">
+          <input type="file" id="kFoto" accept="image/*" onchange="kFotoPreview(this)">
+          <p>📷 Fotoğraf ekle (opsiyonel)</p>
+        </div>
+        <div id="kFotoPreview"></div>
+        <button class="kf-submit" id="kSubmitBtn" onclick="submitKursus()">📢 Gönder</button>
+      </div>
+      <!-- Liste -->
+      <div style="padding-top:4px;" id="kursusList"></div>
+      <div style="height:16px;"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════
+       BOTTOM NAV
+  ════════════════════════════════ -->
+  <div class="bottom-nav">
+    <div class="nav-item active" data-page="home" onclick="goPage('home')">
+      <div class="nav-ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="#D32F2F"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      </div>
+      <div class="nav-lbl" style="color:var(--red);">Ana Sayfa</div>
+    </div>
+    <div class="nav-item" data-page="search" onclick="goPage('search')">
+      <div class="nav-ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </div>
+      <div class="nav-lbl">Arama</div>
+    </div>
+    <div class="gonder-fab" onclick="openShare()">
+      <div class="fab-btn">+</div>
+      <div class="nav-lbl">Gönder</div>
+    </div>
+    <div class="nav-item" data-page="notifications" onclick="goPage('notifications')">
+      <div class="nav-ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="nb-badge">3</span>
+      </div>
+      <div class="nav-lbl">Bildirimler</div>
+    </div>
+    <div class="nav-item" data-page="profile" onclick="goPage('profile')">
+      <div class="nav-ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
+      <div class="nav-lbl">Profil</div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<!-- SHARE SHEET -->
+<div class="overlay" id="shareModal" onclick="if(event.target===this)closeShare()">
+  <div class="bottom-sheet">
+    <div class="bs-handle"></div>
+    <div class="bs-title">📝 Yeni Paylaşım</div>
+    <div class="f-row">
+      <label class="f-label">Kategori *</label>
+      <select class="f-select" id="fKategori">
+        <option value="">Seçin</option>
+        <option value="sorun">📢 Mahalle Sorunu</option>
+        <option value="kayip">🔍 Kayıp İlanı</option>
+        <option value="acil">🩸 Acil Kan İhtiyacı</option>
+        <option value="satilik">🛋️ Satılık / Ücretsiz</option>
+        <option value="foto">📸 Mahalle Fotoğrafı</option>
+        <option value="etkinlik">📅 Etkinlik Duyurusu</option>
+        <option value="vefat">🕊️ Vefat Bilgisi</option>
+      </select>
+    </div>
+    <div class="f-row">
+      <label class="f-label">Başlık *</label>
+      <input type="text" class="f-input" id="fBaslik" placeholder="Paylaşımın başlığını yaz…">
+    </div>
+    <div class="f-row">
+      <label class="f-label">Açıklama</label>
+      <textarea class="f-textarea" id="fAciklama" placeholder="Detayları buraya yaz…"></textarea>
+    </div>
+    <div class="f-row">
+      <label class="f-label">Konum</label>
+      <input type="text" class="f-input" id="fKonum" placeholder="Sokak / cadde adı…">
+    </div>
+    <div class="f-row">
+      <label class="f-label">Fotoğraf / Video</label>
+      <div class="upload-zone">
+        <input type="file" id="fFoto" accept="image/*,video/*" onchange="handleFotoChange(this)">
+        <div class="uz-icon">📷</div>
+        <div class="uz-text">Eklemek için tıklayın</div>
+        <div class="uz-hint">PNG, JPG, MP4 · Maks. 20 MB</div>
+      </div>
+      <div id="fotoPreview"></div>
+    </div>
+    <div class="f-row">
+      <label class="f-label">Telefon (opsiyonel)</label>
+      <input type="tel" class="f-input" id="fTelefon" placeholder="0500 000 00 00">
+    </div>
+    <button class="send-btn" id="submitBtn" onclick="submitIlan()">Paylaşımı Gönder ›</button>
+    <div class="note-box">ℹ️ Editör onayından geçtikten sonra yayınlanır.</div>
+  </div>
+</div>
+
+<!-- USER PANEL -->
+<div class="side-overlay" id="userPanel" onclick="if(!document.getElementById('sideSheet').contains(event.target))closeUserPanel()">
+  <div class="side-sheet" id="sideSheet">
+    <div class="ss-top">
+      <div class="ss-ava" id="ssAva">👤</div>
+      <div class="ss-name" id="ssName">Giriş Yapın</div>
+      <div class="ss-badge" id="ssBadge">🏘️ Mutlular Mahallesi</div>
+      <div class="ss-stats">
+        <div><div class="ss-sn" id="ssP">—</div><div class="ss-sl">İlan</div></div>
+        <div><div class="ss-sn" id="ssG">—</div><div class="ss-sl">Puan</div></div>
+        <div><div class="ss-sn" id="ssR">—</div><div class="ss-sl">Rozet</div></div>
+      </div>
+    </div>
+    <div class="ss-menu">
+      <div id="panelLogin" style="display:flex;flex-direction:column;">
+        <div class="ss-item" onclick="openLogin('giris')">
+          <div class="ss-ico" style="background:#FFEBEE;">🔑</div>
+          <div><div class="ss-it">Giriş Yap</div><div class="ss-is">Hesabına giriş yap</div></div>
+          <div class="ss-arr">›</div>
+        </div>
+        <div class="ss-item" onclick="openLogin('kayit')">
+          <div class="ss-ico" style="background:#E8F5E9;">✅</div>
+          <div><div class="ss-it">Üye Ol</div><div class="ss-is">Yeni hesap oluştur</div></div>
+          <div class="ss-arr">›</div>
+        </div>
+      </div>
+      <div id="panelLogout" style="display:none;flex-direction:column;">
+        <div class="ss-item" onclick="closeUserPanel();goPage('profile')">
+          <div class="ss-ico" style="background:#E8F5E9;">👤</div>
+          <div><div class="ss-it">Profilim</div><div class="ss-is">İlanlarım &amp; Ayarlar</div></div>
+          <div class="ss-arr">›</div>
+        </div>
+        <div class="ss-item" id="adminPanelLink" style="display:none;" onclick="window.open('mutlular-admin.html','_blank')">
+          <div class="ss-ico" style="background:#FCE4EC;">👑</div>
+          <div><div class="ss-it">Yönetim Paneli</div><div class="ss-is">Haber &amp; ilan yönet</div></div>
+          <div class="ss-arr">›</div>
+        </div>
+        <div class="ss-item" id="esnafPanelLink" style="display:none;" onclick="openEsnafPanel()">
+          <div class="ss-ico" style="background:#E8F5E9;">🏪</div>
+          <div><div class="ss-it">Esnaf Paneliim</div><div class="ss-is">Kampanya &amp; bilgilerim</div></div>
+          <div class="ss-arr">›</div>
+        </div>
+      </div>
+      <div class="ss-div"></div>
+      <div class="ss-item" onclick="closeUserPanel();goPage('vefat')">
+        <div class="ss-ico" style="background:#ECEFF1;">🕊️</div>
+        <div><div class="ss-it">Vefat Bildirimleri</div></div>
+        <div class="ss-arr">›</div>
+      </div>
+      <div class="ss-item" onclick="closeUserPanel();goPage('eczane')">
+        <div class="ss-ico" style="background:#E8F5E9;">💊</div>
+        <div><div class="ss-it">Nöbetçi Eczane</div></div>
+        <div class="ss-arr">›</div>
+      </div>
+      <div class="ss-item" onclick="closeUserPanel();goPage('kursus')">
+        <div class="ss-ico" style="background:#FFF3E0;">📢</div>
+        <div><div class="ss-it">Mahalle Kürsüsü</div></div>
+        <div class="ss-arr">›</div>
+      </div>
+    </div>
+    <button class="logout-btn2" id="panelLogout2" onclick="doLogout()">Çıkış Yap</button>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div class="login-overlay" id="loginModal" onclick="if(event.target===this)closeLogin()">
   <div class="login-box">
-    <div class="login-logo">
-      <div class="ico">🏘️</div>
-      <h1>Mutlular Haber</h1>
-      <p>Yönetim Paneli</p>
+    <div class="lb-head">
+      <button class="lb-close" onclick="closeLogin()">×</button>
+      <div class="lb-ico">🏘️</div>
+      <div class="lb-title">Mutlular Haber</div>
+      <div class="lb-sub">Mahallenizle bağlantı kurun</div>
     </div>
+    <div class="lb-body">
+      <div class="lb-tabs">
+        <div class="lb-tab active" id="tab-giris" onclick="switchTab('giris')">Giriş Yap</div>
+        <div class="lb-tab" id="tab-kayit" onclick="switchTab('kayit')">Üye Ol</div>
+      </div>
+      <div id="girisForm">
+        <div class="f-row" style="margin-bottom:12px;">
+          <label class="f-label">E-posta</label>
+          <input type="email" class="f-input" id="loginEmail" placeholder="ornek@mail.com">
+        </div>
+        <div class="f-row" style="margin-bottom:12px;">
+          <label class="f-label">Şifre</label>
+          <input type="password" class="f-input" id="loginPass" placeholder="••••••••"
+                 onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <button class="lb-btn" id="loginBtn" onclick="doLogin()">Giriş Yap</button>
+        <div class="lb-div">veya</div>
+        <button class="soc-btn" onclick="doGoogleLogin()">🔵 Google ile Giriş Yap</button>
+      </div>
+      <div id="kayitForm" style="display:none;">
+        <!-- Hesap türü seçici -->
+        <div class="f-row" style="margin-bottom:14px;">
+          <label class="f-label">Hesap Türü</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="hesap-turu-kart active" id="ht-sakin" onclick="selectHesapTuru('sakin')">
+              <div style="font-size:22px;">🏠</div>
+              <div style="font-size:12px;font-weight:800;margin-top:4px;">Mahalle Sakini</div>
+              <div style="font-size:10px;color:#636366;margin-top:2px;">İlan ver, oy kullan</div>
+            </div>
+            <div class="hesap-turu-kart" id="ht-esnaf" onclick="selectHesapTuru('esnaf')">
+              <div style="font-size:22px;">🏪</div>
+              <div style="font-size:12px;font-weight:800;margin-top:4px;">Mahalle Esnafı</div>
+              <div style="font-size:10px;color:#636366;margin-top:2px;">Kampanya paylaş</div>
+            </div>
+          </div>
+        </div>
 
-    <div class="login-role-tabs">
-      <div class="lr-tab active" onclick="this.parentNode.querySelectorAll('.lr-tab').forEach(t=>t.classList.remove('active'));this.classList.add('active');">👑 Admin / Editör</div>
-    </div>
+        <div class="f-row" style="margin-bottom:12px;">
+          <label class="f-label">Ad Soyad</label>
+          <input type="text" class="f-input" id="regName" placeholder="Adınız Soyadınız">
+        </div>
+        <div class="f-row" style="margin-bottom:12px;">
+          <label class="f-label">E-posta</label>
+          <input type="email" class="f-input" id="regEmail" placeholder="ornek@mail.com">
+        </div>
+        <div class="f-row" style="margin-bottom:12px;">
+          <label class="f-label">Şifre</label>
+          <input type="password" class="f-input" id="regPass" placeholder="En az 6 karakter">
+        </div>
 
-    <div class="lf-group">
-      <label class="lf-label">E-posta</label>
-      <input type="email" class="lf-input" id="lEmail" placeholder="admin@mutlularhaber.com">
-    </div>
-    <div class="lf-group">
-      <label class="lf-label">Şifre</label>
-      <input type="password" class="lf-input" id="lPass" placeholder="••••••••"
-             onkeydown="if(event.key==='Enter')doAdminLogin()">
-    </div>
-    <button class="login-btn" id="lBtn" onclick="doAdminLogin()">Panele Giriş Yap</button>
+        <!-- Esnaf ek alanları -->
+        <div id="esnafEkAlanlar" style="display:none;">
+          <div style="background:#FFF8E1;border-radius:12px;padding:10px 13px;font-size:12px;color:#795800;font-weight:600;margin-bottom:12px;">
+            🏪 Esnaf başvurunuz admin onayından geçtikten sonra aktif olur.
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">İşyeri Adı *</label>
+            <input type="text" class="f-input" id="regIsyeri" placeholder="Örn: Hasan Usta Kasap">
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">İş Kategorisi</label>
+            <select class="f-select" id="regKategori">
+              <option value="market">🛒 Market / Bakkal</option>
+              <option value="kasap">🥩 Kasap</option>
+              <option value="manav">🥦 Manav</option>
+              <option value="ekmek">🍞 Fırın / Ekmek</option>
+              <option value="lokanta">🍽️ Lokanta / Restoran</option>
+              <option value="kafe">☕ Kafe</option>
+              <option value="berber">✂️ Berber / Kuaför</option>
+              <option value="eczane">💊 Eczane</option>
+              <option value="kirtasiye">📚 Kırtasiye</option>
+              <option value="tamirhane">🔧 Tamirhane</option>
+              <option value="diger">🏪 Diğer</option>
+            </select>
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">Telefon</label>
+            <input type="tel" class="f-input" id="regTelefon" placeholder="0532 123 45 67">
+          </div>
+          <div class="f-row" style="margin-bottom:12px;">
+            <label class="f-label">Adres / Konum</label>
+            <input type="text" class="f-input" id="regAdres" placeholder="Atatürk Cad. No:12">
+          </div>
+        </div>
 
-    <div class="login-info">
-      ℹ️ Bu panel sadece <strong>Admin</strong> ve <strong>Editör</strong> rolüne sahip hesaplarla erişilebilir. Erişim için sistem yöneticisine başvurun.
+        <button class="lb-btn" id="regBtn" onclick="doRegister()">Üye Ol</button>
+        <div class="lb-div">veya</div>
+        <button class="soc-btn" onclick="doGoogleLogin()">🔵 Google ile Kayıt Ol</button>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ══ PANEL ══ -->
-<div id="panelScreen">
-<div class="panel-wrap">
-
-  <!-- SIDEBAR -->
-  <div class="sidebar">
-    <div class="sb-brand">
-      <div class="sb-brand-name">Mutlular Haber</div>
-      <div class="sb-brand-sub">YÖNETİM PANELİ</div>
-    </div>
-    <div class="sb-user">
-      <div class="sb-ava">👤</div>
-      <div>
-        <div class="sb-uname" id="uName">—</div>
-        <div class="sb-urole" id="uRole">—</div>
-      </div>
-    </div>
-    <nav class="sb-nav">
-      <div class="nav-section">Genel</div>
-      <div class="nav-link active" data-page="dashboard" onclick="navigateTo('dashboard')">
-        <span class="ni">📊</span> Dashboard
-      </div>
-
-      <div class="nav-section">İçerik</div>
-      <div class="nav-link" data-page="ilanlar" onclick="navigateTo('ilanlar')">
-        <span class="ni">📋</span> İlan Yönetimi
-      </div>
-      <div class="nav-link" data-page="haberler" onclick="navigateTo('haberler')">
-        <span class="ni">📰</span> Haber Yönetimi
-      </div>
-      <div class="nav-link" data-page="esnaf" onclick="navigateTo('esnaf')">
-        <span class="ni">🏪</span> Esnaf Yönetimi
-      </div>
-      <div class="nav-link" data-page="esnaf-basvurular" onclick="navigateTo('esnaf-basvurular')">
-        <span class="ni">📝</span> Esnaf Başvuruları
-      </div>
-      <div class="nav-link" data-page="kampanyalar" onclick="navigateTo('kampanyalar')">
-        <span class="ni">📢</span> Kampanyalar
-      </div>
-
-      <div class="nav-section">Sistem</div>
-      <div class="nav-link admin-only" data-page="kullanicilar" onclick="navigateTo('kullanicilar')" style="display:none;">
-        <span class="ni">👥</span> Kullanıcı Rolleri
-      </div>
-    </nav>
-    <div class="sb-logout">
-      <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:8px;" id="uEmail"></div>
-      <button class="logout-btn" onclick="doLogout()">⬅️ Çıkış Yap</button>
-    </div>
+<!-- ESNAF PANELİ -->
+<div class="esnaf-panel-overlay" id="esnafPanelOverlay" onclick="if(event.target===this)closeEsnafPanel()">
+  <div class="esnaf-panel-sheet" id="esnafPanelSheet">
+    <div style="text-align:center;padding:40px;color:#8E8E93;">Yükleniyor…</div>
   </div>
+</div>
 
-  <!-- MAIN -->
-  <div class="main-content">
-
-    <!-- DASHBOARD -->
-    <div class="page active" id="page-dashboard">
-      <div class="page-header">
-        <div class="page-title">📊 Dashboard</div>
-        <div class="page-sub">Genel bakış ve bekleyen işlemler</div>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-card" style="--accent:#F59E0B;">
-          <div class="stat-icon">⏳</div>
-          <div class="stat-num" id="statBekleyen">—</div>
-          <div class="stat-label">Bekleyen İlan</div>
-        </div>
-        <div class="stat-card" style="--accent:#10B981;">
-          <div class="stat-icon">✅</div>
-          <div class="stat-num" id="statOnaylanan">—</div>
-          <div class="stat-label">Onaylanan İlan</div>
-        </div>
-        <div class="stat-card" style="--accent:#3B82F6;">
-          <div class="stat-icon">📰</div>
-          <div class="stat-num" id="statHaber">—</div>
-          <div class="stat-label">Yayında Haber</div>
-        </div>
-        <div class="stat-card" style="--accent:#8B5CF6;">
-          <div class="stat-icon">🏪</div>
-          <div class="stat-num" id="statEsnaf">—</div>
-          <div class="stat-label">Kayıtlı Esnaf</div>
-        </div>
-        <div class="stat-card" style="--accent:#EC4899;">
-          <div class="stat-icon">📝</div>
-          <div class="stat-num" id="statEsnafBasvuru">—</div>
-          <div class="stat-label">Bekleyen Başvuru</div>
-        </div>
-        <div class="stat-card" style="--accent:#F97316;">
-          <div class="stat-icon">📢</div>
-          <div class="stat-num" id="statKampanya">—</div>
-          <div class="stat-label">Bekleyen Kampanya</div>
-        </div>
-      </div>
-
-      <div class="section-card">
-        <div class="section-card-head">
-          <div>
-            <div class="section-card-title">⏳ Bekleyen İlanlar</div>
-            <div class="section-card-sub">Onay bekleyen son 5 ilan</div>
-          </div>
-          <button class="filtre-btn active" onclick="navigateTo('ilanlar')" style="font-size:11px;">Tümünü Gör →</button>
-        </div>
-        <div id="dashBekleyen"></div>
-      </div>
-    </div>
-
-    <!-- İLAN YÖNETİMİ -->
-    <div class="page" id="page-ilanlar">
-      <div class="page-header">
-        <div class="page-title">📋 İlan Yönetimi</div>
-        <div class="page-sub">Kullanıcılardan gelen ilanları onaylayın veya reddedin</div>
-      </div>
-      <div class="filtre-bar">
-        <button class="filtre-btn active" data-f="pending"  onclick="loadIlanlar('pending')">⏳ Bekleyenler</button>
-        <button class="filtre-btn"        data-f="approved" onclick="loadIlanlar('approved')">✅ Onaylananlar</button>
-        <button class="filtre-btn"        data-f="rejected" onclick="loadIlanlar('rejected')">❌ Reddedilenler</button>
-        <button class="filtre-btn"        data-f="all"      onclick="loadIlanlar('all')">📋 Tümü</button>
-      </div>
-      <div class="section-card">
-        <div id="ilanList"></div>
-      </div>
-    </div>
-
-    <!-- HABER YÖNETİMİ -->
-    <div class="page" id="page-haberler">
-      <div class="page-header">
-        <div class="page-title">📰 Haber Yönetimi</div>
-        <div class="page-sub">Haber ekleyin, düzenleyin ve yönetin</div>
-      </div>
-
-      <!-- Haber Formu -->
-      <div class="form-card" id="haberForm">
-        <div class="form-title" id="haberFormTitle">➕ Yeni Haber Ekle</div>
-        <input type="hidden" id="hId">
-        <div class="form-grid">
-          <div class="fg span2">
-            <label>Başlık *</label>
-            <input type="text" id="hBaslik" placeholder="Haberin başlığını yazın…">
-          </div>
-          <div class="fg span2">
-            <label>Özet *</label>
-            <textarea id="hOzet" placeholder="Kısa özet (ana sayfada görünür)…" style="height:70px;"></textarea>
-          </div>
-          <div class="fg span2">
-            <label>İçerik</label>
-            <textarea id="hIcerik" placeholder="Haberin tam içeriği…" style="height:120px;"></textarea>
-          </div>
-          <div class="fg">
-            <label>Konum</label>
-            <input type="text" id="hKonum" placeholder="Atatürk Caddesi…">
-          </div>
-          <div class="fg">
-            <label>Emoji İkon</label>
-            <input type="text" id="hEmoji" placeholder="📰" value="📰">
-          </div>
-          <div class="fg span2">
-            <label>Fotoğraf</label>
-            <div class="upload-zone">
-              <input type="file" id="hFoto" accept="image/*" onchange="haberFotoPreview(this)">
-              <p>📷 Fotoğraf seçmek için tıklayın</p>
-            </div>
-            <div id="hFotoPreview"></div>
-          </div>
-          <div class="fg span2">
-            <div class="checkbox-row">
-              <input type="checkbox" id="hSonDakika">
-              <label for="hSonDakika">🚨 Son Dakika olarak işaretle (ana sayfada öne çıkar)</label>
-            </div>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="form-btn primary" id="hKaydetBtn" onclick="haberKaydet()">🚀 Yayınla</button>
-          <button class="form-btn secondary" onclick="haberFormSifirla()">🔄 Sıfırla</button>
-        </div>
-      </div>
-
-      <!-- Haber Listesi -->
-      <div class="section-card">
-        <div class="section-card-head">
-          <div class="section-card-title">📋 Yayınlanan Haberler</div>
-        </div>
-        <div id="haberList"></div>
-      </div>
-    </div>
-
-    <!-- ESNAF YÖNETİMİ -->
-    <div class="page" id="page-esnaf">
-      <div class="page-header">
-        <div class="page-title">🏪 Esnaf Yönetimi</div>
-        <div class="page-sub">Mahalle esnafını ekleyin ve yönetin</div>
-      </div>
-
-      <!-- Esnaf Formu -->
-      <div class="form-card" id="esnafForm">
-        <div class="form-title" id="esnafFormTitle">➕ Yeni Esnaf Ekle</div>
-        <input type="hidden" id="eId">
-        <div class="form-grid">
-          <div class="fg span2">
-            <label>Esnaf Adı *</label>
-            <input type="text" id="eIsim" placeholder="Hasan Usta Pide Salonu">
-          </div>
-          <div class="fg span2">
-            <label>Kampanya / Teklif</label>
-            <input type="text" id="eKampanya" placeholder="Bugün pidelere %20 indirim!">
-          </div>
-          <div class="fg">
-            <label>Telefon</label>
-            <input type="tel" id="eTelefon" placeholder="0532 123 45 67">
-          </div>
-          <div class="fg">
-            <label>Logo Emoji</label>
-            <input type="text" id="eLogo" placeholder="🫓" value="🏪">
-          </div>
-          <div class="fg">
-            <label>Kart Arka Plan Rengi</label>
-            <input type="color" id="eLogoBg" value="#FFF3E0" style="height:42px;cursor:pointer;">
-          </div>
-          <div class="fg">
-            <div class="checkbox-row">
-              <input type="checkbox" id="eAktif" checked>
-              <label for="eAktif">Aktif olarak yayınla</label>
-            </div>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="form-btn primary" id="eKaydetBtn" onclick="esnafKaydet()">💾 Kaydet</button>
-          <button class="form-btn secondary" onclick="esnafFormSifirla()">🔄 Sıfırla</button>
-        </div>
-      </div>
-
-      <!-- Esnaf Listesi -->
-      <div class="section-card">
-        <div class="section-card-head">
-          <div class="section-card-title">📋 Kayıtlı Esnaf</div>
-        </div>
-        <div id="esnafList"></div>
-      </div>
-    </div>
-
-    <!-- ESNAF BAŞVURULARI -->
-    <div class="page" id="page-esnaf-basvurular">
-      <div class="page-header">
-        <div class="page-title">📝 Esnaf Başvuruları</div>
-        <div class="page-sub">Mahalle esnafı kayıt başvurularını onaylayın</div>
-      </div>
-      <div class="filtre-bar">
-        <button class="filtre-btn esnaf-filtre-btn active" data-f="pending"  onclick="loadEsnafBasvurular('pending')">⏳ Bekleyenler</button>
-        <button class="filtre-btn esnaf-filtre-btn"        data-f="approved" onclick="loadEsnafBasvurular('approved')">✅ Onaylananlar</button>
-        <button class="filtre-btn esnaf-filtre-btn"        data-f="rejected" onclick="loadEsnafBasvurular('rejected')">❌ Reddedilenler</button>
-        <button class="filtre-btn esnaf-filtre-btn"        data-f="all"      onclick="loadEsnafBasvurular('all')">📋 Tümü</button>
-      </div>
-      <div class="section-card">
-        <div id="esnafBasvuruList"></div>
-      </div>
-    </div>
-
-    <!-- KAMPANYALAR -->
-    <div class="page" id="page-kampanyalar">
-      <div class="page-header">
-        <div class="page-title">📢 Kampanya Yönetimi</div>
-        <div class="page-sub">Esnafların gönderdiği kampanyaları onaylayın</div>
-      </div>
-      <div class="filtre-bar">
-        <button class="filtre-btn kamp-filtre-btn active" data-f="pending"  onclick="loadKampanyalar('pending')">⏳ Bekleyenler</button>
-        <button class="filtre-btn kamp-filtre-btn"        data-f="approved" onclick="loadKampanyalar('approved')">✅ Yayındakiler</button>
-        <button class="filtre-btn kamp-filtre-btn"        data-f="rejected" onclick="loadKampanyalar('rejected')">❌ Reddedilenler</button>
-        <button class="filtre-btn kamp-filtre-btn"        data-f="all"      onclick="loadKampanyalar('all')">📋 Tümü</button>
-      </div>
-      <div class="section-card">
-        <div id="kampanyaList"></div>
-      </div>
-    </div>
-
-    <!-- KULLANICI ROL YÖNETİMİ (Admin only) -->
-    <div class="page" id="page-kullanicilar">
-      <div class="page-header">
-        <div class="page-title">👥 Kullanıcı Rolleri</div>
-        <div class="page-sub">Admin ve Editör rolü atayın</div>
-      </div>
-
-      <div class="form-card">
-        <div class="form-title">➕ Rol Ekle</div>
-        <div class="form-grid">
-          <div class="fg span2">
-            <label>Firebase UID *</label>
-            <input type="text" id="rolUid" placeholder="Kullanıcının Firebase UID'si (Auth → Users'dan alın)">
-          </div>
-          <div class="fg">
-            <label>Ad Soyad</label>
-            <input type="text" id="rolName" placeholder="Ahmet Yılmaz">
-          </div>
-          <div class="fg">
-            <label>E-posta *</label>
-            <input type="email" id="rolEmail" placeholder="ahmet@mail.com">
-          </div>
-          <div class="fg span2">
-            <label>Rol</label>
-            <select id="rolRole">
-              <option value="editor">📰 Editör — İlan onaylar, haber yazar</option>
-              <option value="admin">👑 Admin — Tam yetki</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="form-btn primary" onclick="rolEkle()">✅ Rol Ekle</button>
-        </div>
-        <div style="margin-top:14px;background:#EFF6FF;border-radius:10px;padding:12px;font-size:12px;color:#1D4ED8;line-height:1.6;">
-          ℹ️ <strong>UID nasıl bulunur?</strong><br>
-          Firebase Console → Authentication → Users → İlgili kullanıcı satırı → User UID sütunu
-        </div>
-      </div>
-
-      <div class="section-card">
-        <div class="section-card-head">
-          <div class="section-card-title">👥 Mevcut Roller</div>
-        </div>
-        <div id="kullaniciList"></div>
-      </div>
-    </div>
-
-  </div><!-- /main-content -->
-</div><!-- /panel-wrap -->
-</div><!-- /panelScreen -->
+<!-- İLAN DETAY -->
+<div class="modal-overlay" id="ilanDetayModal" onclick="if(event.target===this)closeIlanDetay()">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeIlanDetay()">✕</button>
+    <img class="modal-img" id="idetImg" src="" alt="">
+    <div class="modal-title"    id="idetTitle"></div>
+    <div class="modal-body-text" id="idetBody"></div>
+    <div class="modal-meta"     id="idetMeta"></div>
+    <div class="modal-author"   id="idetAuthor"></div>
+    <div class="modal-time"     id="idetTime"></div>
+    <a class="call-btn" id="idetPhone" href="#">📞 Hemen Ara</a>
+  </div>
+</div>
 
 <div id="toast"></div>
 
-<script>
-// Keyboard shortcut
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') {
-    doAdminLogin();
-  }
-});
-</script>
 </body>
 </html>
