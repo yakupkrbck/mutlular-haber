@@ -1012,6 +1012,8 @@ async function uploadToCloudinary(file, folder) {
   }
   throw new Error('Cloudinary: ' + errMsg);
 }
+
+window.handleFotoChange = input => {
   const p=document.getElementById('fotoPreview');
   p.innerHTML='';
   if(input.files[0]){
