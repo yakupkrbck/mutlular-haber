@@ -70,6 +70,12 @@ onAuthStateChanged(auth, async user => {
   showScreen('panel');
   loadDashboard();
   navigateTo('dashboard');
+
+  // Son dakika checkbox açıklama toggle
+  const sdCb = document.getElementById('hSonDakika');
+  if(sdCb) sdCb.addEventListener('change', function(){
+    document.getElementById('sonDakikaAciklama').style.display = this.checked ? 'block' : 'none';
+  });
 });
 
 // ══════════════════════════════════════════
@@ -338,18 +344,16 @@ window.haberKaydet = async () => {
     }
 
     const payload = {
-      baslik,
-      ozet,
-      icerik: icerik || '',
-      konum: konum || '',
-      sonDakika,
-      emoji,
-      authorName: currentUser.displayName || currentUser.email,
-      authorId:   currentUser.uid,
+      baslik:     String(baslik   || ''),
+      ozet:       String(ozet     || ''),
+      icerik:     String(icerik   || ''),
+      konum:      String(konum    || ''),
+      sonDakika:  Boolean(sonDakika),
+      emoji:      String(emoji    || '📰'),
+      authorName: String(currentUser.displayName || currentUser.email || 'Admin'),
+      authorId:   String(currentUser.uid),
     };
-
-    // Yeni fotoğraf yüklendiyse güncelle; yoksa mevcut URL korunsun
-    if (imageURL) payload.imageURL = imageURL;
+    if (imageURL && typeof imageURL === 'string') payload.imageURL = imageURL;
 
     if (id) {
       await updateDoc(doc(db,'haberler',id), { ...payload, updatedAt: serverTimestamp() });
@@ -1158,7 +1162,13 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:
           <div class="fg span2">
             <div class="checkbox-row">
               <input type="checkbox" id="hSonDakika">
-              <label for="hSonDakika">🚨 Son Dakika olarak işaretle (ana sayfada öne çıkar)</label>
+              <label for="hSonDakika">🚨 Son Dakika olarak işaretle</label>
+            </div>
+            <div id="sonDakikaAciklama" style="display:none;margin-top:10px;background:#FFF3E0;border:1.5px solid #FF9800;border-radius:10px;padding:10px 12px;font-size:12px;color:#E65100;line-height:1.6;">
+              <strong>📱 Ana sayfada şöyle görünür:</strong><br>
+              • Hero slider'ın en üstüne çıkar (kırmızı "SON DAKİKA" etiketiyle)<br>
+              • Arşiv listesinde kırmızı etiketle öne çıkar<br>
+              • Birden fazla son dakika varsa en yeni önce gösterilir
             </div>
           </div>
         </div>
