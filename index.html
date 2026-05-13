@@ -901,15 +901,17 @@ window.kampanyaGonder = async () => {
       imageURL = cldData.secure_url;
     }
 
-    await addDoc(collection(db,'esnaf_kampanyalar'), {
-      esnafId:   _currentEsnafData.id,
-      esnafAdi:  _currentEsnafData.isyeri,
-      uid:       currentUser.uid,
-      mesaj,
-      imageURL:  imageURL,
+    const kampanyaPayload = {
+      esnafId:   String(_currentEsnafData.id  || ''),
+      esnafAdi:  String(_currentEsnafData.isyeri || ''),
+      uid:       String(currentUser.uid),
+      mesaj:     String(mesaj),
       status:    'pending',
       createdAt: serverTimestamp()
-    });
+    };
+    if(imageURL && typeof imageURL === 'string') kampanyaPayload.imageURL = imageURL;
+
+    await addDoc(collection(db,'esnaf_kampanyalar'), kampanyaPayload);
     showToast('Kampanya gönderildi! Admin onayı bekleniyor. 📢');
     renderEsnafPanel();
   } catch(e) {
@@ -982,17 +984,22 @@ window.submitIlan = async () => {
       imageURL = cldData.secure_url;
       btn.textContent = '💾 Kaydediliyor…';
     }
-    await addDoc(collection(db,'ilanlar'),{
-      kategori, baslik,
-      aciklama: aciklama || '',
-      konum:    konum    || '',
-      telefon:  telefon  || '',
-      imageURL: imageURL,
-      status:   'pending',
-      uid:      currentUser.uid,
-      authorName: currentUser.displayName || currentUser.email,
-      createdAt: serverTimestamp()
-    });
+    // Firestore undefined kabul etmez - tüm alanları güvenli hale getir
+    const payload = {
+      kategori:   String(kategori || ''),
+      baslik:     String(baslik   || ''),
+      aciklama:   String(aciklama || ''),
+      konum:      String(konum    || ''),
+      telefon:    String(telefon  || ''),
+      status:     'pending',
+      uid:        String(currentUser.uid),
+      authorName: String(currentUser.displayName || currentUser.email || 'Anonim'),
+      createdAt:  serverTimestamp()
+    };
+    // imageURL sadece string ise ekle, null/undefined ise hiç koyma
+    if(imageURL && typeof imageURL === 'string') payload.imageURL = imageURL;
+
+    await addDoc(collection(db,'ilanlar'), payload);
     closeShare();
     showToast('İlanınız alındı! Editör onayından sonra yayınlanacak ✅');
     ['fBaslik','fAciklama','fKonum','fTelefon'].forEach(id => document.getElementById(id).value='');
