@@ -11,6 +11,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- Leaflet harita -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script type="module">
 import { initializeApp }           from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -171,7 +174,7 @@ window.goPage = (page, data={}) => {
   if (page==='profile')      loadProfile();
   if (page==='haber')        renderHaberDetay(data);
   if (page==='kursus')       loadKursus();
-  if (page==='harita')       initHarita();
+  if (page==='harita')       window.initHaritaDetay && window.initHaritaDetay();
 };
 
 // ══════════════════════════════════════════
@@ -708,7 +711,7 @@ function loadKursus() {
   });
 }
 
-window.openKursusModal  = () => { if(!currentUser){openLogin('giris');return;} document.getElementById('kursusModal').classList.add('open'); document.body.style.overflow='hidden'; };
+window.openKursusModal  = () => { if(!currentUser){window.openLogin('giris');return;} document.getElementById('kursusModal').classList.add('open'); document.body.style.overflow='hidden'; };
 window.closeKursusModal = () => { document.getElementById('kursusModal').classList.remove('open'); document.body.style.overflow=''; };
 
 window.kFotoPreview = input => {
@@ -1016,7 +1019,7 @@ window.openShare     = () => { document.getElementById('shareModal').classList.a
 window.closeShare    = () => { document.getElementById('shareModal').classList.remove('open'); document.body.style.overflow=''; };
 window.openUserPanel = () => document.getElementById('userPanel').classList.add('open');
 window.closeUserPanel= () => document.getElementById('userPanel').classList.remove('open');
-window.openLogin     = (tab='giris') => { closeUserPanel(); switchTab(tab); document.getElementById('loginModal').classList.add('open'); };
+window.openLogin     = (tab='giris') => { window.closeUserPanel(); window.switchTab(tab); document.getElementById('loginModal').classList.add('open'); };
 window.closeLogin    = () => document.getElementById('loginModal').classList.remove('open');
 
 window.switchTab = tab => {
@@ -1057,7 +1060,7 @@ function authErr(code){
   return m[code]||'Bir hata oluştu.';
 }
 
-window.addEventListener('popstate',()=>goPage('home'));
+window.addEventListener('popstate',()=>window.goPage('home'));
 
 // ══════════════════════════════════════════
 // INIT
@@ -1067,11 +1070,359 @@ loadHaberler();
 loadEsnaf();
 loadKampanyalarHome();
 goPage('home');
+
+// ── Canlı saat ──
+function updateClock(){
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const str = h + ':' + m;
+  const el = document.getElementById('liveClockEl');
+  if(el) el.textContent = str;
+  const ne = document.getElementById('nabizTimeEl');
+  if(ne) ne.textContent = 'Bugün ' + str;
+  const ne2 = document.getElementById('nabizTimeEl2');
+  if(ne2) ne2.textContent = 'Bugün ' + str;
+}
+updateClock();
+setInterval(updateClock, 15000);
+
+// ── Nav aktif yönetimi ──
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(n => {
+        n.classList.remove('active');
+        const lbl = n.querySelector('.nav-lbl');
+        if(lbl) lbl.style.color = '';
+        if(n.dataset.page === 'home'){
+          const svg = n.querySelector('svg');
+          if(svg){ svg.setAttribute('fill','none'); svg.setAttribute('stroke','#8E8E93'); }
+        }
+      });
+      item.classList.add('active');
+      const lbl = item.querySelector('.nav-lbl');
+      if(lbl) lbl.style.color = '#D32F2F';
+      if(item.dataset.page === 'home'){
+        const svg = item.querySelector('svg');
+        if(svg){ svg.setAttribute('fill','#D32F2F'); svg.removeAttribute('stroke'); }
+      }
+    });
+  });
+
+  // Notif filter chips
+  document.querySelectorAll('.nfr-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.nfr-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  });
+});
+
+// ── Star rating ──
+document.addEventListener('click', e => {
+  if(e.target.classList.contains('drb-star')){
+    const stars = e.target.parentElement.querySelectorAll('.drb-star');
+    const idx = Array.from(stars).indexOf(e.target);
+    stars.forEach((s,i) => s.classList.toggle('active', i <= idx));
+  }
+});
+
+// ── Skeleton fade-in ──
+const fadeObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if(entry.isIntersecting){
+      entry.target.style.opacity = '1';
+      entry.target.style.transform = 'translateY(0)';
+      fadeObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.08 });
+
+function observeCards(){
+  document.querySelectorAll('.feed-card,.feed-card-featured,.esnaf-card,.kamp-card,.pano-card,.nabiz-widget,.anket-card').forEach(el => {
+    if(!el.dataset.observed){
+      el.dataset.observed = '1';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(18px)';
+      el.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+      fadeObserver.observe(el);
+    }
+  });
+}
+setTimeout(observeCards, 800);
+setInterval(observeCards, 2000);
+
+// ══════════════════════════════════════════
+// HAVA DURUMU — Open-Meteo (API key gerekmez)
+// Mehmet Akif Mah. Osmangazi/Bursa
+// ══════════════════════════════════════════
+const WMO_CODES = {
+  0:'☀️ Açık', 1:'🌤️ Az Bulutlu', 2:'⛅ Parçalı', 3:'☁️ Bulutlu',
+  45:'🌫️ Sisli', 48:'🌫️ Sisli',
+  51:'🌦️ Çisenti', 53:'🌦️ Çisenti', 55:'🌧️ Çisenti',
+  61:'🌧️ Hafif Yağmur', 63:'🌧️ Yağmur', 65:'🌧️ Kuvvetli',
+  71:'🌨️ Kar', 73:'❄️ Kar', 75:'❄️ Yoğun Kar',
+  80:'🌦️ Sağanak', 81:'🌧️ Sağanak', 82:'⛈️ Şiddetli',
+  95:'⛈️ Fırtına', 96:'⛈️ Dolu', 99:'⛈️ Dolu',
+};
+async function loadWeather() {
+  try {
+    const res  = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=40.1956&longitude=29.0601&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weathercode&timezone=Europe%2FIstanbul`);
+    const json = await res.json();
+    const c    = json.current;
+    const temp    = Math.round(c.temperature_2m);
+    const feels   = Math.round(c.apparent_temperature);
+    const humid   = c.relative_humidity_2m;
+    const wind    = Math.round(c.wind_speed_10m);
+    const codeStr = WMO_CODES[c.weathercode] || '🌡️';
+    const [icon, ...rest] = codeStr.split(' ');
+    const cond = rest.join(' ');
+
+    const tempEl = document.getElementById('lb-temp-val');
+    const condEl = document.getElementById('lb-cond-val');
+    if(tempEl) tempEl.textContent = temp + '°C';
+    if(condEl) condEl.textContent = icon + ' ' + cond;
+    const wv = document.getElementById('nw-weather-val');
+    if(wv) wv.textContent = temp + '°C';
+    const hv = document.getElementById('nw-humid-val');
+    if(hv) hv.textContent = '%' + humid;
+    const wd = document.getElementById('nw-weather-detail');
+    if(wd) wd.textContent = `${icon} ${cond} · Hissedilen ${feels}°C · Rüzgar ${wind} km/h`;
+  } catch(e) { console.warn('Hava:', e.message); }
+}
+loadWeather();
+setInterval(loadWeather, 600000);
+
+// Trafik tahmini (saat bazlı)
+function loadTrafficEstimate() {
+  const hour = new Date().getHours();
+  let val, color, dotClass;
+  if((hour>=7&&hour<=9)||(hour>=17&&hour<=19)){
+    val='Yoğun'; color='#D32F2F'; dotClass='nwsr-dot--red';
+  } else if((hour>=10&&hour<=16)||(hour>=20&&hour<=22)){
+    val='Orta';  color='#F57F17'; dotClass='nwsr-dot--yellow';
+  } else {
+    val='Normal'; color='#2E7D32'; dotClass='nwsr-dot--green';
+  }
+  const el  = document.getElementById('nw-trafik-val');
+  const dot = document.getElementById('nw-trafik-dot');
+  if(el) { el.textContent = val; el.style.color = color; }
+  if(dot) dot.className = 'nwsr-dot ' + dotClass;
+}
+loadTrafficEstimate();
+setInterval(loadTrafficEstimate, 300000);
+
+// ══════════════════════════════════════════
+// SKELETON LOADING
+// ══════════════════════════════════════════
+function showSkeleton() {
+  const list = document.getElementById('arsivList');
+  if(!list) return;
+  list.innerHTML = [1,2,3].map(() => `
+    <div class="feed-card" style="pointer-events:none;">
+      <div class="fc-inner">
+        <div class="fc-left">
+          <div class="skeleton" style="width:70px;height:14px;margin-bottom:8px;border-radius:20px;"></div>
+          <div class="skeleton" style="width:100%;height:15px;margin-bottom:5px;"></div>
+          <div class="skeleton" style="width:82%;height:15px;margin-bottom:5px;"></div>
+          <div class="skeleton" style="width:60%;height:12px;margin-bottom:10px;"></div>
+          <div class="skeleton" style="width:88%;height:11px;"></div>
+        </div>
+        <div class="fc-thumb"><div class="skeleton" style="width:100%;height:100%;"></div></div>
+      </div>
+    </div>`).join('');
+  const pano = document.getElementById('panoRow');
+  if(pano) pano.innerHTML = [1,2,3,4].map(() =>
+    `<div class="pano-card" style="pointer-events:none;"><div class="skeleton" style="position:absolute;inset:0;border-radius:18px;"></div></div>`
+  ).join('');
+}
+showSkeleton();
+
+// ══════════════════════════════════════════
+// ACİL DURUM
+// ══════════════════════════════════════════
+window.openAcilDurum = (tip) => {
+  const types = {
+    elektrik:{ icon:'⚡', title:'Elektrik Kesintisi!', desc:'Mehmet Akif Mahallesi genelinde geçici elektrik kesintisi.', time:'13:00 – 17:00', grad:'linear-gradient(145deg,#4A0000,#B71C1C)', phone:'186' },
+    su:      { icon:'💧', title:'Su Kesintisi!',       desc:'13:00–18:00 saatleri arasında su kesintisi yaşanacak.',   time:'13:00 – 18:00', grad:'linear-gradient(145deg,#01579B,#0288D1)', phone:'185' },
+    yangin:  { icon:'🔥', title:'Yangın Bildirimi!',   desc:'Yakın bölgede yangın ihbarı alındı. Dikkatli olunuz.',   time:'Anlık',          grad:'linear-gradient(145deg,#BF360C,#FF5722)', phone:'110' },
+    deprem:  { icon:'🌍', title:'Deprem Uyarısı!',     desc:'Bölgenizde deprem faaliyeti tespit edildi.',              time:'Anlık',          grad:'linear-gradient(145deg,#4A148C,#7B1FA2)', phone:'122' },
+  };
+  const t = types[tip] || types.elektrik;
+  const modal = document.getElementById('acilModal');
+  modal.innerHTML = `
+    <div class="acil-modal-inner" style="background:${t.grad};">
+      <div class="am-close-row"><button class="am-close" onclick="window.closeAcilDurum()">✕</button></div>
+      <div class="am-icon-wrap">
+        <div class="am-icon-ring"></div><div class="am-icon-ring am-ring2"></div>
+        <div class="am-icon">${t.icon}</div>
+      </div>
+      <div class="am-tag">⚠️ ACİL DURUM</div>
+      <div class="am-title">${t.title}</div>
+      <div class="am-desc">${t.desc}</div>
+      <div class="am-time-box">
+        <div class="am-time-label">Tahmini Süre</div>
+        <div class="am-time-val">${t.time}</div>
+      </div>
+      <button class="am-detail-btn" onclick="window.closeAcilDurum()">Tamam, Anladım</button>
+      <a href="tel:112" class="am-call-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13 19.79 19.79 0 0 1 1.62 4.4 2 2 0 0 1 3.6 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l.91-.91a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17z"/></svg>
+        Acil durumlarda 112'yi arayın
+      </a>
+    </div>`;
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
+window.closeAcilDurum = () => {
+  document.getElementById('acilModal').classList.remove('open');
+  document.body.style.overflow = '';
+};
+
+// ══════════════════════════════════════════
+// SWIPE — Pull to refresh hint
+// ══════════════════════════════════════════
+let _ty = 0;
+document.addEventListener('touchstart', e => { _ty = e.touches[0].clientY; }, { passive:true });
+document.addEventListener('touchend', e => {
+  const dy = e.changedTouches[0].clientY - _ty;
+  if(dy > 65) {
+    const homeEl = document.getElementById('scr-home');
+    if(homeEl && homeEl.classList.contains('active') && homeEl.scrollTop < 10) {
+      const ind = document.getElementById('refreshInd');
+      if(ind){ ind.classList.add('show'); setTimeout(()=>ind.classList.remove('show'), 1800); }
+    }
+  }
+}, { passive:true });
+
+// ══════════════════════════════════════════
+// NOTIFICATION POP
+// ══════════════════════════════════════════
+function popNotification(msg, icon='🔔') {
+  const el = document.getElementById('notifPop');
+  if(!el) return;
+  el.querySelector('.np-icon').textContent = icon;
+  el.querySelector('.np-text').textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+setTimeout(() => popNotification('Mehmet Akif Mah. şu an sakin 🌿', '💓'), 3000);
+
+// ══════════════════════════════════════════
+// FAB MENU
+// ══════════════════════════════════════════
+let _fabOpen = false;
+window.toggleFabMenu = () => {
+  _fabOpen = !_fabOpen;
+  const menu = document.getElementById('fabMenu');
+  const ov   = document.getElementById('fabOverlay');
+  const btn  = document.getElementById('fabMainBtn');
+  if(menu) menu.classList.toggle('open', _fabOpen);
+  if(ov)   ov.style.display = _fabOpen ? 'block' : 'none';
+  if(btn)  { btn.style.transform = _fabOpen ? 'rotate(45deg)' : 'rotate(0)'; btn.style.transition = 'transform .25s cubic-bezier(.34,1.5,.64,1)'; }
+};
+window.fabAction = (type) => {
+  _fabOpen = false;
+  document.getElementById('fabMenu')?.classList.remove('open');
+  const ov = document.getElementById('fabOverlay');
+  if(ov) ov.style.display = 'none';
+  const btn = document.getElementById('fabMainBtn');
+  if(btn) btn.style.transform = 'rotate(0)';
+  if(type==='ilan')   window.openShare();
+  if(type==='sorun')  window.openKursusModal();
+  if(type==='harita') window.goPage('harita');
+};
+
+// ══════════════════════════════════════════
+// MAHALLE HARİTASI
+// ══════════════════════════════════════════
+const _MAP_LAT  = 40.1956;
+const _MAP_LNG  = 29.0601;
+const _MAP_ZOOM = 15;
+let   _leafMap  = null;
+let   _markers  = [];
+
+window.initHaritaDetay = () => {
+  const container = document.getElementById('haritaMap');
+  if(!container) return;
+  if(_leafMap) { _leafMap.invalidateSize(); return; }
+  if(typeof L === 'undefined') {
+    container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;"><div style="font-size:52px;">🗺️</div><div style="font-size:14px;font-weight:700;color:#8E8E93;">Harita yükleniyor…</div></div>';
+    let n=0;
+    const t=setInterval(()=>{ n++; if(typeof L!=='undefined'){clearInterval(t);_buildLeafMap(container);}  if(n>30)clearInterval(t); },300);
+    return;
+  }
+  _buildLeafMap(container);
+};
+
+function _buildLeafMap(container) {
+  container.innerHTML = '';
+  _leafMap = L.map(container, { zoomControl:false, attributionControl:false, tap:true })
+    .setView([_MAP_LAT, _MAP_LNG], _MAP_ZOOM);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    { maxZoom:19, subdomains:'abcd' }).addTo(_leafMap);
+  L.control.zoom({ position:'bottomright' }).addTo(_leafMap);
+
+  // Merkez — mavi nokta
+  L.marker([_MAP_LAT, _MAP_LNG], {
+    icon: L.divIcon({ className:'', iconSize:[18,18], iconAnchor:[9,9],
+      html:'<div style="width:18px;height:18px;border-radius:50%;background:#2196F3;border:3px solid #fff;box-shadow:0 0 0 5px rgba(33,150,243,0.25);"></div>'
+    })
+  }).addTo(_leafMap).bindPopup('<b style="font-family:Inter">📍 Mehmet Akif Mahallesi</b><br><small>Osmangazi / Bursa</small>');
+
+  const PINS = [
+    { lat:40.1970, lng:29.0618, e:'🚧', c:'#D32F2F', t:'sorun',    l:'Yol çukuru — Mehmet Akif Cad.' },
+    { lat:40.1942, lng:29.0585, e:'📅', c:'#1565C0', t:'etkinlik', l:'Mahalle pikniği — Cumartesi 14:00' },
+    { lat:40.1975, lng:29.0575, e:'🏪', c:'#2E7D32', t:'esnaf',    l:'Kasap Mehmet — %20 indirim' },
+    { lat:40.1938, lng:29.0625, e:'🔍', c:'#F57F17', t:'kayip',    l:'Kayıp kedi — Sarı, erkek' },
+    { lat:40.1962, lng:29.0638, e:'📣', c:'#6A1B9A', t:'duyuru',   l:'Su kesintisi 13:00–18:00' },
+    { lat:40.1982, lng:29.0592, e:'🏪', c:'#00695C', t:'esnaf',    l:'Fırın Ustası — Taze ekmek' },
+    { lat:40.1933, lng:29.0568, e:'💧', c:'#0277BD', t:'sorun',    l:'Kaldırım çökmüş' },
+    { lat:40.1958, lng:29.0648, e:'🎉', c:'#C62828', t:'etkinlik', l:'Ramazan etkinliği' },
+    { lat:40.1978, lng:29.0558, e:'🐕', c:'#FF8F00', t:'kayip',    l:'Kayıp köpek — Bej, iri cüsseli' },
+    { lat:40.1948, lng:29.0608, e:'⚡', c:'#B71C1C', t:'duyuru',   l:'Planlı elektrik kesintisi' },
+  ];
+  _leafMap._pins = PINS;
+  _renderMapPins(PINS);
+
+  // Filtre butonları
+  document.querySelectorAll('.hf-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.hf-chip').forEach(b=>b.classList.remove('hf-chip--active'));
+      btn.classList.add('hf-chip--active');
+      const kat = btn.dataset.kat||'tumu';
+      _markers.forEach(m=>_leafMap.removeLayer(m));
+      _markers=[];
+      _renderMapPins(kat==='tumu'?_leafMap._pins:_leafMap._pins.filter(p=>p.t===kat));
+    });
+  });
+}
+
+function _renderMapPins(pins) {
+  pins.forEach((p,i)=>{
+    const icon = L.divIcon({ className:'', iconSize:[40,40], iconAnchor:[20,40], popupAnchor:[0,-44],
+      html:`<div style="width:40px;height:40px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
+        background:${p.c};border:3px solid rgba(255,255,255,0.95);
+        box-shadow:0 4px 12px rgba(0,0,0,0.28);
+        display:flex;align-items:center;justify-content:center;
+        animation:pinDrop .35s ${i*0.05}s both;">
+        <span style="transform:rotate(45deg);font-size:18px;">${p.e}</span></div>`
+    });
+    const m = L.marker([p.lat,p.lng],{icon}).addTo(_leafMap)
+      .bindPopup(`<div style="font-family:'Inter',sans-serif;padding:2px;">
+        <div style="font-size:9px;font-weight:900;color:${p.c};text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;">${p.t.toUpperCase()}</div>
+        <div style="font-size:13px;font-weight:700;color:#0D0D0D;line-height:1.35;">${p.l}</div>
+      </div>`,{maxWidth:220,className:'map-popup'});
+    _markers.push(m);
+  });
+}
+
+// Harita başlatma goPage içinde zaten çağrılıyor (yukarıda)
+
 </script>
 
-<!-- Leaflet for map -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet head'e taşındı -->
 
 <style>
 /* ═══════════════════════════════════════════════════
@@ -1883,430 +2234,4 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);-webki
 .drb-star{font-size:26px;color:#E0E0E0;cursor:pointer;transition:color .2s;}
 .drb-star.active{color:var(--gold);}
 .drb-score{font-size:14px;font-weight:800;color:var(--ink);}
-.drb-count{font-size:12px;color:var(--muted);font-weight:400;}
-.det-comments-head{
-  display:flex;gap:20px;
-  border-bottom:2px solid var(--border);
-  margin-bottom:16px;
-}
-.dch-tab{
-  font-size:14px;font-weight:700;color:var(--muted);
-  padding-bottom:10px;cursor:pointer;
-}
-.dch-tab.active{color:var(--red);border-bottom:2px solid var(--red);margin-bottom:-2px;}
-.det-comment{display:flex;gap:12px;margin-bottom:16px;}
-.dc-ava{
-  width:36px;height:36px;border-radius:50%;flex-shrink:0;
-  background:linear-gradient(135deg,var(--red),#FF6B6B);
-  display:flex;align-items:center;justify-content:center;
-  font-size:14px;font-weight:800;color:#fff;
-}
-.dc-body{flex:1;}
-.dc-name{font-size:13px;font-weight:800;color:var(--ink);display:flex;align-items:center;gap:7px;margin-bottom:3px;}
-.dc-badge{font-size:9px;font-weight:800;background:#EFF4FF;color:var(--blue);padding:2px 7px;border-radius:20px;}
-.dc-stars{font-size:12px;color:var(--gold);margin-bottom:4px;}
-.dc-text{font-size:13px;color:var(--ink2);line-height:1.5;margin-bottom:6px;}
-.dc-actions{display:flex;gap:14px;font-size:12px;color:var(--muted);font-weight:600;}
-.det-comment-input-row{
-  display:flex;align-items:center;gap:10px;
-  margin-top:8px;
-}
-.dci-input{
-  flex:1;background:var(--bg);border:none;border-radius:22px;
-  padding:12px 16px;font-size:14px;font-family:'Inter',sans-serif;
-  color:var(--ink);outline:none;
-}
-.dci-send{
-  width:40px;height:40px;border-radius:50%;
-  background:var(--red);border:none;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;flex-shrink:0;
-  box-shadow:0 2px 8px var(--red-glow);
-}
-.dci-send svg{color:#fff;}
-
-/* ═══════════════════════════════════════════════════
-   SEARCH SCREEN
-═══════════════════════════════════════════════════ */
-.search-bar-wrap{
-  padding:12px 14px;
-  background:var(--white);
-  border-bottom:1px solid var(--border);
-  position:sticky;top:0;z-index:10;
-}
-.search-bar-inner{
-  display:flex;align-items:center;gap:10px;
-  background:var(--bg);border-radius:16px;
-  padding:0 14px;
-}
-.search-bar-icon svg{width:16px;height:16px;color:var(--muted);}
-.search-bar-input{
-  flex:1;border:none;background:transparent;
-  padding:13px 0;font-size:15px;
-  font-family:'Inter',sans-serif;color:var(--ink);outline:none;
-}
-.search-bar-input::placeholder{color:var(--muted);}
-.srch-results{flex:1;overflow-y:auto;padding-top:8px;}
-.srch-empty{
-  display:flex;flex-direction:column;align-items:center;
-  padding:60px 24px;text-align:center;
-}
-.srch-empty-icon{font-size:48px;margin-bottom:12px;opacity:0.4;}
-.search-item{
-  display:flex;align-items:center;gap:13px;
-  padding:14px 16px;
-  border-bottom:1px solid var(--border);
-  cursor:pointer;background:var(--white);
-  transition:background .15s;
-}
-.search-item:active{background:var(--bg);}
-.si-icon{font-size:24px;flex-shrink:0;width:40px;text-align:center;}
-.si-type{font-size:9px;font-weight:900;color:var(--red);letter-spacing:0.5px;margin-bottom:3px;text-transform:uppercase;}
-.si-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:2px;}
-.si-title mark{background:#FFF0F0;color:var(--red);border-radius:3px;padding:0 2px;}
-.si-meta{font-size:11px;color:var(--muted);}
-.loading-sm{padding:24px;text-align:center;color:var(--muted);font-size:13px;}
-.empty-card{padding:32px;text-align:center;color:var(--muted);font-size:14px;}
-
-/* ═══════════════════════════════════════════════════
-   NOTIFICATIONS SCREEN
-═══════════════════════════════════════════════════ */
-.notif-screen-header{
-  padding:16px 16px 12px;
-  background:var(--white);
-  border-bottom:1px solid var(--border);
-}
-.nsh-title{font-size:24px;font-weight:900;color:var(--ink);}
-.notif-filter-row{
-  display:flex;gap:6px;padding:10px 14px;
-  background:var(--white);
-  border-bottom:1px solid var(--border);
-  overflow-x:auto;scrollbar-width:none;
-}
-.notif-filter-row::-webkit-scrollbar{display:none;}
-.nfr-chip{
-  flex-shrink:0;padding:7px 14px;border-radius:20px;
-  font-size:12px;font-weight:700;
-  border:1.5px solid var(--border-solid);
-  background:transparent;color:var(--muted);
-  cursor:pointer;font-family:'Inter',sans-serif;
-  display:flex;align-items:center;gap:5px;
-  transition:all .2s;
-}
-.nfr-chip.active{background:var(--red);color:#fff;border-color:var(--red);}
-.nfr-badge{
-  font-size:10px;font-weight:800;
-  background:var(--red);color:#fff;
-  padding:1px 5px;border-radius:10px;
-}
-.nfr-chip.active .nfr-badge{background:rgba(255,255,255,0.3);}
-.notif-item{
-  display:flex;align-items:flex-start;gap:12px;
-  padding:14px 16px;
-  background:var(--white);
-  border-bottom:1px solid var(--border);
-  cursor:pointer;transition:background .15s;
-  position:relative;
-}
-.notif-item:active{background:var(--bg);}
-.notif-item--unread{background:#FFFAFA;}
-.ni-icon{
-  width:44px;height:44px;border-radius:14px;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:20px;
-}
-.ni-icon--red{background:#FFF0F0;}
-.ni-icon--green{background:#E8F5E9;}
-.ni-icon--purple{background:#F3E5F5;}
-.ni-icon--blue{background:#EFF4FF;}
-.ni-body{flex:1;}
-.ni-tag{font-size:9px;font-weight:900;color:var(--red);letter-spacing:0.5px;margin-bottom:3px;text-transform:uppercase;}
-.ni-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4;}
-.ni-time{font-size:11px;color:var(--muted);margin-top:3px;}
-.ni-unread-dot{
-  width:9px;height:9px;border-radius:50%;
-  background:var(--red);flex-shrink:0;margin-top:4px;
-}
-.notif-see-all-btn{
-  padding:18px;text-align:center;
-  font-size:13px;font-weight:700;color:var(--red);
-  cursor:pointer;background:var(--white);
-}
-
-/* ═══════════════════════════════════════════════════
-   PROFILE SCREEN
-═══════════════════════════════════════════════════ */
-.profile-login{
-  display:flex;flex-direction:column;align-items:center;
-  padding:80px 24px;text-align:center;
-}
-.pl-icon{font-size:60px;margin-bottom:16px;}
-.pl-title{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:8px;}
-.pl-sub{font-size:14px;color:var(--muted);margin-bottom:28px;}
-.pl-btn{
-  background:var(--red);color:#fff;border:none;
-  padding:14px 40px;border-radius:14px;
-  font-size:15px;font-weight:800;
-  cursor:pointer;font-family:'Inter',sans-serif;
-}
-.profile-hero-bg{
-  min-height:220px;position:relative;
-  background:linear-gradient(160deg,#1C0000 0%,#7F0000 50%,var(--red-dark) 100%);
-  overflow:hidden;
-}
-.profile-hero-bg::before{
-  content:'';position:absolute;inset:0;
-  background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23fff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E");
-}
-.profile-hero-content{
-  position:relative;z-index:1;
-  display:flex;flex-direction:column;align-items:center;
-  justify-content:center;padding:32px 20px 24px;
-}
-.ph-avatar{
-  width:76px;height:76px;border-radius:50%;
-  border:3px solid rgba(255,255,255,0.35);
-  background:rgba(255,255,255,0.14);
-  display:flex;align-items:center;justify-content:center;
-  font-size:36px;margin-bottom:12px;
-  backdrop-filter:blur(8px);
-}
-.ph-name{
-  font-family:'Playfair Display',serif;
-  font-size:22px;font-weight:700;color:#fff;
-  text-align:center;margin-bottom:3px;
-}
-.ph-email{font-size:12px;color:rgba(255,255,255,0.55);margin-bottom:10px;}
-.ph-badge-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;}
-.ph-badge{
-  font-size:10px;font-weight:700;
-  padding:4px 11px;border-radius:20px;
-  background:rgba(255,255,255,0.14);color:#fff;
-  backdrop-filter:blur(8px);
-}
-.ph-badge--gold{background:rgba(255,179,0,0.2);color:#FFD54F;}
-.profile-stats-bar{
-  display:flex;align-items:center;
-  background:var(--white);
-  border-bottom:1px solid var(--border);
-}
-.psb-item{
-  flex:1;display:flex;flex-direction:column;align-items:center;
-  padding:16px 8px;
-}
-.psb-num{font-size:22px;font-weight:900;color:var(--ink);}
-.psb-lbl{font-size:11px;color:var(--muted);font-weight:500;margin-top:3px;}
-.psb-sep{width:1px;height:44px;background:var(--border);}
-
-/* Rozet section */
-.rozet-section{
-  background:var(--white);
-  margin-top:10px;padding:16px;
-}
-.rozet-sec-head{
-  display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:14px;
-}
-.rozet-sec-title{font-size:16px;font-weight:800;color:var(--ink);}
-.rozet-see-all{font-size:12px;font-weight:700;color:var(--red);text-decoration:none;}
-.rozet-grid{
-  display:grid;grid-template-columns:repeat(3,1fr);
-  gap:12px;margin-bottom:16px;
-}
-.rozet-item{display:flex;flex-direction:column;align-items:center;gap:6px;}
-.rozet-icon{
-  width:54px;height:54px;border-radius:16px;
-  display:flex;align-items:center;justify-content:center;font-size:26px;
-}
-.rozet-name{font-size:9px;font-weight:700;color:var(--muted);text-align:center;line-height:1.3;}
-.xp-card{background:var(--bg);border-radius:16px;padding:14px;}
-.xp-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;}
-.xp-level{font-size:11px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;}
-.xp-title{font-size:15px;font-weight:800;color:var(--ink);margin-top:2px;}
-.xp-score-badge{
-  font-size:12px;font-weight:800;color:var(--red);
-  background:#FFF0F0;padding:5px 10px;border-radius:20px;
-}
-.xp-bar-wrap{
-  height:9px;background:rgba(0,0,0,0.07);
-  border-radius:5px;overflow:hidden;margin-bottom:8px;
-}
-.xp-bar-fill{
-  height:100%;border-radius:5px;
-  background:linear-gradient(90deg,var(--red),#FF5252);
-  transition:width 1.5s cubic-bezier(.34,1,.64,1);
-}
-.xp-next{font-size:11px;color:var(--muted);}
-.profile-ilanlar{padding:16px;background:var(--white);margin-top:10px;}
-.pil-title{font-size:16px;font-weight:800;color:var(--ink);margin-bottom:12px;}
-.pil-card{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:12px;border-radius:14px;
-  background:var(--bg);margin-bottom:8px;
-  cursor:pointer;transition:background .15s;
-}
-.pil-card:active{background:#EBEBEF;}
-.pil-left{flex:1;}
-.pil-tag{
-  display:inline-block;font-size:8px;font-weight:900;
-  padding:2px 8px;border-radius:20px;color:#fff;
-  margin-bottom:4px;
-}
-.pil-title-text{font-size:13px;font-weight:700;color:var(--ink);line-height:1.3;}
-.pil-time{font-size:11px;color:var(--muted);margin-top:2px;}
-.pil-status{
-  font-size:11px;font-weight:700;flex-shrink:0;
-  padding:5px 10px;border-radius:20px;
-}
-.pil-ok{background:#E8F5E9;color:#1B5E20;}
-.pil-red{background:#FFEBEE;color:#B71C1C;}
-.pil-wait{background:#FFF8E1;color:#795800;}
-
-/* ═══════════════════════════════════════════════════
-   KURSUS SCREEN
-═══════════════════════════════════════════════════ */
-.page-screen-header{
-  display:flex;align-items:center;gap:12px;
-  padding:14px 16px;background:var(--white);
-  border-bottom:1px solid var(--border);
-}
-.psh-back{
-  width:36px;height:36px;border-radius:50%;
-  background:rgba(0,0,0,0.06);border:none;
-  font-size:18px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-}
-.psh-title{font-size:18px;font-weight:800;color:var(--ink);}
-.kursus-list{flex:1;overflow-y:auto;background:var(--bg);padding:10px 0;}
-.kursus-item{
-  background:var(--white);margin:0 14px 10px;
-  border-radius:16px;padding:14px;
-  box-shadow:var(--sh1);border:1px solid var(--border);
-}
-.ki-header{display:flex;align-items:center;gap:7px;margin-bottom:10px;flex-wrap:wrap;}
-.ki-tag{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;}
-.ki-ok{background:#E8F5E9;color:#1B5E20;}
-.ki-bekle{background:#FFF8E1;color:#795800;}
-.ki-info{background:#E3F2FD;color:#1565C0;}
-.ki-time{font-size:11px;color:var(--muted);margin-left:auto;}
-.ki-img{width:100%;border-radius:10px;margin-bottom:10px;max-height:180px;object-fit:cover;}
-.ki-title{font-size:15px;font-weight:800;color:var(--ink);margin-bottom:6px;}
-.ki-body{font-size:13px;color:var(--ink2);line-height:1.5;margin-bottom:8px;}
-.ki-meta{font-size:11px;color:var(--muted);}
-
-/* ═══════════════════════════════════════════════════
-   SIDE PANEL
-═══════════════════════════════════════════════════ */
-.side-overlay{
-  display:none;position:fixed;inset:0;
-  background:rgba(0,0,0,0.48);z-index:200;
-  backdrop-filter:blur(6px);
-}
-.side-overlay.open{display:block;}
-.side-sheet{
-  position:absolute;top:0;right:0;
-  width:290px;height:100%;max-width:84vw;
-  background:var(--white);
-  box-shadow:-6px 0 40px rgba(0,0,0,0.18);
-  display:flex;flex-direction:column;
-  animation:slideFromRight .28s cubic-bezier(.34,1.2,.64,1);
-}
-@keyframes slideFromRight{from{transform:translateX(100%);}to{transform:translateX(0);}}
-.ss-top{
-  background:linear-gradient(160deg,#1C0000,var(--red-dark));
-  padding:52px 20px 22px;
-}
-.ss-ava{
-  width:62px;height:62px;border-radius:50%;
-  border:2.5px solid rgba(255,255,255,0.38);
-  background:rgba(255,255,255,0.14);
-  display:flex;align-items:center;justify-content:center;
-  font-size:30px;margin-bottom:11px;
-}
-.ss-name{
-  font-family:'Playfair Display',serif;
-  font-size:18px;font-weight:700;color:#fff;
-}
-.ss-badge{font-size:11px;color:rgba(255,255,255,0.58);font-weight:600;margin-top:4px;}
-.ss-stats{display:flex;gap:22px;margin-top:15px;}
-.ss-sn{font-size:20px;font-weight:900;color:var(--gold);}
-.ss-sl{font-size:9px;color:rgba(255,255,255,0.5);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
-.ss-menu{flex:1;overflow-y:auto;padding:10px 0;}
-.ss-item{
-  display:flex;align-items:center;gap:13px;
-  padding:13px 18px;cursor:pointer;
-  transition:background .15s;
-}
-.ss-item:active{background:var(--bg);}
-.ss-ico{
-  width:38px;height:38px;border-radius:12px;
-  display:flex;align-items:center;justify-content:center;font-size:18px;
-}
-.ss-it{font-size:14px;font-weight:700;color:var(--ink);}
-.ss-is{font-size:11px;color:var(--muted);}
-.ss-arr{margin-left:auto;color:#C6C6C8;font-size:18px;}
-.ss-div{height:0.5px;background:var(--border);margin:4px 18px;}
-.logout-btn2{
-  margin:0 18px 28px;padding:12px;
-  background:#FFF0F0;border:1.5px solid #FFCDD2;
-  border-radius:12px;color:var(--red);
-  font-size:13px;font-weight:800;
-  text-align:center;cursor:pointer;display:none;
-  font-family:'Inter',sans-serif;
-}
-
-/* ═══════════════════════════════════════════════════
-   MODALS
-═══════════════════════════════════════════════════ */
-.overlay{
-  display:none;position:fixed;inset:0;
-  background:rgba(0,0,0,0.6);z-index:250;
-  align-items:flex-end;
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-}
-.overlay.open{display:flex;}
-.bottom-sheet{
-  width:100%;max-width:480px;margin:0 auto;
-  background:var(--white);
-  border-radius:26px 26px 0 0;
-  padding:0 20px 44px;
-  max-height:92vh;overflow-y:auto;
-  animation:sheetUp .32s cubic-bezier(.34,1.4,.64,1);
-}
-@keyframes sheetUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
-.bs-handle{
-  width:38px;height:4px;background:#E0E0E0;
-  border-radius:2px;margin:12px auto 0;
-}
-.bs-title{
-  font-size:18px;font-weight:800;color:var(--ink);
-  padding:16px 0 14px;
-  border-bottom:1px solid var(--border);margin-bottom:16px;
-}
-
-/* Login Modal */
-.login-overlay{
-  display:none;position:fixed;inset:0;
-  background:rgba(0,0,0,0.72);z-index:350;
-  align-items:center;justify-content:center;
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-}
-.login-overlay.open{display:flex;}
-.login-box{
-  width:calc(100% - 32px);max-width:400px;
-  background:var(--white);border-radius:24px;
-  overflow:hidden;
-  animation:popIn .3s cubic-bezier(.34,1.56,.64,1);
-  box-shadow:var(--sh4);
-}
-@keyframes popIn{from{opacity:0;transform:scale(.86);}to{opacity:1;transform:scale(1);}}
-.lb-head{
-  background:linear-gradient(160deg,#1C0000,var(--red));
-  padding:28px 20px;text-align:center;position:relative;
-}
-.lb-ico{
-  width:58px;height:58px;
-  background:rgba(255,255,255,0.16);border-radius:18px;
-  display:flex;align-items:center;justify-content:center;
-  font-size:28px;margin:0 auto 10px;backdrop-filter:blur(8px);
-}
-.lb-title{font-family:'Playfair Display',serif;font-siz
+.drb-count{font-size:12px
