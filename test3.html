@@ -17,7 +17,7 @@
 import { initializeApp }           from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
          signOut, onAuthStateChanged, GoogleAuthProvider,
-         signInWithPopup, updateProfile }
+         signInWithPopup, signInWithRedirect, getRedirectResult, updateProfile }
                                    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, addDoc, setDoc, onSnapshot, query, orderBy,
          limit, where, serverTimestamp, doc, updateDoc, getDoc,
@@ -82,7 +82,8 @@ onAuthStateChanged(auth, async user => {
   } else {
     if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
     currentUser = null; currentRole = null;
-    document.getElementById('avatarBtn').textContent = '👤';
+    const _ava2 = document.getElementById('avatarBtn');
+    if(_ava2) _ava2.textContent = '👤';
     document.getElementById('ssAva').textContent     = '👤';
     document.getElementById('ssName').textContent    = 'Giriş Yapın';
     document.getElementById('ssBadge').textContent   = '🏘️ Mutlular Mahallesi';
@@ -171,32 +172,67 @@ window.doRegister = async () => {
   }
 };
 
+async function _handleGoogleUser(u) {
+  const uRef = doc(db, 'users', u.uid);
+  const uSnap = await getDoc(uRef);
+  if (!uSnap.exists()) {
+    await setDoc(uRef, {
+      name:  u.displayName || '',
+      email: u.email       || '',
+      role:  'user',
+      puan:  0,
+      photoURL: u.photoURL || '',
+      createdAt: serverTimestamp()
+    });
+  }
+}
+
+// Redirect sonucunu sayfa yüklendiğinde yakala
+getRedirectResult(auth).then(async result => {
+  if (result && result.user) {
+    await _handleGoogleUser(result.user);
+    showToast('Google ile giriş yapıldı! 🎉');
+  }
+}).catch(e => {
+  if (e.code && e.code !== 'auth/no-auth-event') {
+    showToast('Google girişi başarısız: ' + (e.code || e.message), true);
+  }
+});
+
 window.doGoogleLogin = async () => {
   try {
+    // Önce popup dene (masaüstü için daha iyi UX)
     const result = await signInWithPopup(auth, gProvider);
-    const u = result.user;
-    // İlk defa Google ile giriş: Firestore'a kullanıcı kaydı oluştur
-    const uRef = doc(db, 'users', u.uid);
-    const uSnap = await getDoc(uRef);
-    if (!uSnap.exists()) {
-      await setDoc(uRef, {
-        name:  u.displayName || '',
-        email: u.email       || '',
-        role:  'user',
-        puan:  0,
-        photoURL: u.photoURL || '',
-        createdAt: serverTimestamp()
-      });
-    }
+    await _handleGoogleUser(result.user);
     closeLogin();
     showToast('Google ile giriş yapıldı! 🎉');
   } catch(e) {
-    if (e.code === 'auth/popup-blocked')
-      showToast('Tarayıcı popup\'ı engelledi — adres çubuğundan izin verin.', true);
-    else if (e.code === 'auth/popup-closed-by-user') { /* sessizce geç */ }
-    else if (e.code === 'auth/cancelled-popup-request') { /* sessizce geç */ }
-    else showToast('Google girişi başarısız: ' + (e.code || e.message), true);
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+      // Popup engellenirse redirect'e geç
+      showToast('Yönlendiriliyorsunuz…');
+      try { await signInWithRedirect(auth, gProvider); }
+      catch(e2) { showToast('Google girişi başarısız: ' + (e2.code || e2.message), true); }
+    } else if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
+      /* kullanıcı kapattı, sessizce geç */
+    } else {
+      showToast('Google girişi başarısız: ' + (e.code || e.message), true);
+    }
   }
+};
+
+// Anket oy verme — Firestore'a kaydet
+window.anketOyVer = async (btn, anketId, secenek) => {
+  if (!currentUser) { window.openLogin('giris'); return; }
+  try {
+    await setDoc(doc(db, 'anketler', anketId, 'oylar', currentUser.uid), {
+      secenek, uid: currentUser.uid, createdAt: serverTimestamp()
+    }, {merge:true});
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Oy Verildi';
+    btn.style.background = '#E8F5E9';
+    btn.style.color = '#1B5E20';
+    btn.disabled = true;
+    showToast('Oyunuz kaydedildi ✅');
+  } catch(e) { showToast('Hata: '+e.message, true); }
 };
 
 window.doLogout = async () => {
@@ -218,6 +254,10 @@ window.goPage = (page, data={}) => {
     if(lbl) lbl.style.color = n.dataset.page===page?'#D32F2F':'';
   });
   window.scrollTo(0,0);
+  // Alt sayfalara geçişte history push et ki geri tuşu çalışsın
+  if (page !== 'home') {
+    history.pushState({page}, '', ' ');
+  }
   if (page==='home')         { /* already loaded */ }
   if (page==='search')       loadSearch('');
   if (page==='notifications') loadNotifications();
@@ -425,7 +465,7 @@ function renderHaberDetay(data) {
       </div>
     </div>`;
 
-  history.pushState({page:'haber'},'', ' ');
+  history.pushState({page:'haber'},'', location.href.split('?')[0]);
 
   // Load real data
   loadHaberRating(hid);
@@ -565,6 +605,7 @@ function buildEsnafCard(id, data) {
 }
 
 window.openEsnafDetay = async (id, data) => {
+  history.pushState({modal:'esnafDetay'},'', ' ');
   const modal = document.getElementById('esnafDetayModal');
   const sheet = document.getElementById('esnafDetayContent');
   modal.classList.add('open');
@@ -881,7 +922,7 @@ function loadKursus() {
   });
 }
 
-window.openKursusModal  = () => { if(!currentUser){window.openLogin('giris');return;} document.getElementById('kursusModal').classList.add('open'); document.body.style.overflow='hidden'; };
+window.openKursusModal  = () => { if(!currentUser){window.openLogin('giris');return;} history.pushState({modal:'kursus'},'', ' '); document.getElementById('kursusModal').classList.add('open'); document.body.style.overflow='hidden'; };
 window.closeKursusModal = () => { document.getElementById('kursusModal').classList.remove('open'); document.body.style.overflow=''; };
 window.toggleKursusForm = () => openKursusModal(); // eski çağrılarla uyumluluk
 
@@ -1316,11 +1357,11 @@ window.handleFotoChange = input => {
 // ══════════════════════════════════════════
 // UI HELPERS
 // ══════════════════════════════════════════
-window.openShare     = () => { document.getElementById('shareModal').classList.add('open'); document.body.style.overflow='hidden'; };
+window.openShare     = () => { history.pushState({modal:'share'},'', ' '); document.getElementById('shareModal').classList.add('open'); document.body.style.overflow='hidden'; };
 window.closeShare    = () => { document.getElementById('shareModal').classList.remove('open'); document.body.style.overflow=''; };
-window.openUserPanel = () => document.getElementById('userPanel').classList.add('open');
-window.closeUserPanel= () => document.getElementById('userPanel').classList.remove('open');
-window.openLogin     = (tab='giris') => { window.closeUserPanel(); window.switchTab(tab); document.getElementById('loginModal').classList.add('open'); };
+window.openUserPanel = () => { history.pushState({modal:'userPanel'},'', ' '); document.getElementById('userPanel').classList.add('open'); };
+window.closeUserPanel= () => { document.getElementById('userPanel').classList.remove('open'); };
+window.openLogin     = (tab='giris') => { window.closeUserPanel(); window.switchTab(tab); history.pushState({modal:'login'},'', ' '); document.getElementById('loginModal').classList.add('open'); };
 window.closeLogin    = () => document.getElementById('loginModal').classList.remove('open');
 
 window.switchTab = tab => {
@@ -1364,8 +1405,42 @@ function authErr(code){
   return m[code]||'Bir hata oluştu.';
 }
 
-// Back button handler
-window.addEventListener('popstate',()=>goPage('home'));
+// ── GERİ TUŞU — kapsamlı handler ──
+// Açık modal varsa onu kapat, yoksa sayfayı geri al
+function _closeAnyOpenModal() {
+  // Öncelik sırasına göre açık elementleri kapat
+  const checks = [
+    { id: 'acilModal',         close: () => window.closeAcilDurum() },
+    { id: 'kampDetayOverlay',  close: () => window.closeKampanyaDetay(), cls: 'open' },
+    { id: 'ilanDetayModal',    close: () => window.closeIlanDetay(), cls: 'open' },
+    { id: 'esnafDetayModal',   close: () => window.closeEsnafDetay(), cls: 'open' },
+    { id: 'kursusModal',       close: () => window.closeKursusModal(), cls: 'open' },
+    { id: 'shareModal',        close: () => window.closeShare(), cls: 'open' },
+    { id: 'loginModal',        close: () => window.closeLogin(), cls: 'open' },
+    { id: 'userPanel',         close: () => window.closeUserPanel(), cls: 'open' },
+    { id: 'esnafPanelOverlay', close: () => window.closeEsnafPanel(), cls: 'open' },
+  ];
+  for (const c of checks) {
+    const el = document.getElementById(c.id);
+    if (!el) continue;
+    const isOpen = c.cls ? el.classList.contains(c.cls) : (el.style.display !== 'none' && el.classList.contains('open'));
+    if (isOpen) { c.close(); return true; }
+  }
+  return false;
+}
+
+window.addEventListener('popstate', (e) => {
+  // Önce açık modal var mı kontrol et
+  if (_closeAnyOpenModal()) {
+    history.pushState(null, '', ' ');
+    return;
+  }
+  // Haber/kursus/harita gibi alt ekranlardaysa ana sayfaya dön
+  const activeScreen = document.querySelector('.screen.active');
+  if (activeScreen && activeScreen.id !== 'scr-home') {
+    goPage('home');
+  }
+});
 
 // ══════════════════════════════════════════
 // INIT
@@ -1618,6 +1693,7 @@ window.openKampanyaDetay = async (id, data) => {
 
   sheet.innerHTML = '<div style="width:38px;height:4px;background:#E0E0E0;border-radius:2px;margin:12px auto 20px;"></div>'
     + '<div style="text-align:center;padding:20px;color:var(--muted);">Yükleniyor…</div>';
+  history.pushState({modal:'kampDetay'},'', ' ');
   ov.classList.add('open');
   document.body.style.overflow = 'hidden';
 
@@ -1783,6 +1859,7 @@ window.openIlanDetay = (id, data) => {
   // Yorum yükle
   window.loadIlanComments(id);
 
+  history.pushState({modal:'ilanDetay'},'', ' ');
   document.getElementById('ilanDetayModal').classList.add('open');
   document.body.style.overflow = 'hidden';
 };
@@ -1963,50 +2040,4 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);-webki
 .esnaf-card:active,.esnaf-card-new:active{transform:scale(.96);}
 .ec-visual{width:100%;height:88px;background:linear-gradient(135deg,#F5F5F8,#EBEBF0);display:flex;align-items:center;justify-content:center;overflow:hidden;}
 .ec-img-cover{width:100%;height:100%;object-fit:cover;}
-.ec-emoji,.ec-img{font-size:36px;display:flex;align-items:center;justify-content:center;width:100%;height:80px;background:var(--bg);}
-.ec-body{padding:10px 11px 12px;}
-.ec-kat{font-size:9px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
-.ec-name{font-size:13px;font-weight:800;color:var(--ink);line-height:1.2;}
-.ec-adres{font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ec-rating{font-size:11px;color:var(--gold);font-weight:700;margin-top:5px;}
-
-/* ═══ KAMPANYA ═══ */
-.kamp-card,.kampanya-kart{margin:0 14px 10px;background:var(--white);border-radius:16px;overflow:hidden;border:1.5px solid #FFE0B2;box-shadow:var(--sh2);transition:transform .18s,box-shadow .18s;cursor:pointer;}.kamp-card:active,.kampanya-kart:active{transform:scale(.97);}
-.kamp-img{width:100%;max-height:220px;object-fit:cover;display:block;}
-.kamp-body{padding:14px;}
-.kamp-tag{font-size:9px;font-weight:900;color:#E65100;letter-spacing:.5px;margin-bottom:4px;text-transform:uppercase;}
-.kamp-esnaf,.kk-esnaf{font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:4px;}
-.kamp-mesaj,.kk-mesaj{font-size:14px;font-weight:700;color:var(--ink);line-height:1.4;margin-bottom:6px;}
-.kamp-time,.kk-time{font-size:11px;color:var(--muted);}
-.kk-ico{width:44px;height:44px;border-radius:12px;background:#FFF3E0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
-.kk-body{flex:1;min-width:0;}
-.kamp-stats{display:flex;gap:12px;margin-top:10px;font-size:12px;color:var(--muted);font-weight:600;}
-
-/* ═══ MAHALLE NABZI ═══ */
-.nabiz-widget{margin:0 14px 14px;background:var(--white);border-radius:20px;border:1px solid var(--border);box-shadow:var(--sh2);overflow:hidden;}
-.nw-header{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border);}
-.nw-title{font-size:14px;font-weight:800;color:var(--ink);}
-.nw-time{font-size:11px;color:var(--muted);}
-.nw-status-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);}
-.nws-icon{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#E8F5E9,#C8E6C9);display:flex;align-items:center;justify-content:center;font-size:20px;}
-.nws-label{font-size:15px;font-weight:800;color:#1B5E20;}
-.nws-sub{font-size:11px;color:var(--muted);}
-.nws-wave{flex:1;height:32px;overflow:hidden;}
-.nws-wave svg{width:100%;height:100%;}
-.nw-stats-row{display:flex;}
-.nwsr-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px;border-right:1px solid var(--border);}
-.nwsr-item:last-child{border-right:none;}
-.nwsr-dot{width:7px;height:7px;border-radius:50%;margin-bottom:5px;}
-.nwsr-dot--green{background:#4CAF50;}
-.nwsr-dot--yellow{background:#FFC107;}
-.nwsr-dot--blue{background:#2196F3;}
-.nwsr-dot--red{background:#D32F2F;}
-.nwsr-val{font-size:12px;font-weight:800;color:var(--ink);}
-.nwsr-lbl{font-size:10px;color:var(--muted);margin-top:1px;}
-
-/* ═══ ANKET ═══ */
-.anket-section{padding:0 14px 14px;}
-.anket-card{background:linear-gradient(145deg,#3A0070,#1E0040);border-radius:22px;padding:18px;box-shadow:0 8px 28px rgba(74,0,128,.32);position:relative;overflow:hidden;}
-.ak-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;}
-.ak-tag{font-size:9px;font-weight:900;color:rgba(255,255,255,.55);letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;}
-.ak-i
+.ec-emoji,.ec-img{font-size:36px;display:flex;align-items:center;justify-con
