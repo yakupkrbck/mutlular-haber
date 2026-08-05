@@ -76,6 +76,8 @@ onAuthStateChanged(auth, async user => {
     // Esnaf başvuru kontrolü
     checkEsnafDurumu(user.uid);
     loadUserStats(user.uid);
+    // Profil sekmesi açıkken giriş tamamlandıysa ekranı tazele
+    if (document.getElementById('scr-profile')?.classList.contains('active')) loadProfile();
   } else {
     if(_profileUnsub) { _profileUnsub(); _profileUnsub = null; }
     currentUser = null; currentRole = null;
@@ -198,6 +200,7 @@ async function handleRedirectResult() {
     const cred = await getRedirectResult(auth);
     if (cred && cred.user) {
       closeLogin();
+      showToast('Google/Apple ile giriş başarılı! 🎉');
       await handleSosyalGirisSonrasi(cred.user);
     }
   } catch(e) {
@@ -381,7 +384,13 @@ function buildPanoCard(id, data) {
 function loadHaberler() {
   const q = query(collection(db,'haberler'), orderBy('createdAt','desc'), limit(20));
   onSnapshot(q, snap => {
-    if (snap.empty) return;
+    if (snap.empty) {
+      document.getElementById('heroLabel').textContent = 'HENÜZ HABER YOK';
+      document.getElementById('heroTitle').textContent  = 'İlk haberi admin panelinden ekleyebilirsiniz';
+      document.getElementById('heroExcerpt').textContent = '';
+      document.getElementById('heroTime').textContent = '';
+      return;
+    }
     const all = snap.docs.map(d => ({id:d.id, ...d.data()}));
     // Önce son dakika, yoksa tüm haberler
     const sonDakika = all.filter(d => d.sonDakika === true);
@@ -391,6 +400,7 @@ function loadHaberler() {
     loadArsiv(all);
   }, err => {
     console.warn('loadHaberler:', err.message);
+    document.getElementById('heroTitle').textContent = 'Haberler yüklenemedi: ' + err.code;
   });
 }
 
@@ -954,6 +964,61 @@ window.submitKursus = async function() {
 // ══════════════════════════════════════════
 let _profileUnsub = null;
 
+// ══════════════════════════════════════════
+// TEST VERİSİ EKLE (geliştirme/deneme amaçlı)
+// Giriş yapmış herhangi bir kullanıcı, kendi Firebase bağlantısı üzerinden
+// örnek haber + kampanya + ilan oluşturur. Firestore kurallarınız yazmaya
+// izin vermiyorsa hata toast'ta görünür.
+// ══════════════════════════════════════════
+window.seedTestData = async function() {
+  if (!currentUser) { showToast('Önce giriş yapın.', true); return; }
+  const btn = document.getElementById('seedBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ekleniyor…'; }
+  try {
+    await addDoc(collection(db,'haberler'), {
+      baslik: 'Mutlular Mahallesi Muhtarlık Duyurusu',
+      ozet: 'Su kesintisi yarın 09:00–13:00 arası planlanıyor. Bilginize.',
+      sonDakika: true,
+      createdAt: serverTimestamp()
+    });
+    await addDoc(collection(db,'haberler'), {
+      baslik: 'Mahalle Parkı Yenileniyor',
+      ozet: 'Çocuk oyun alanı ve yürüyüş yolu bu ay içinde tamamlanacak.',
+      sonDakika: false,
+      createdAt: serverTimestamp()
+    });
+    await addDoc(collection(db,'esnaf_kampanyalar'), {
+      esnafId: currentUser.uid,
+      esnafAdi: 'Hasan Usta Kasap',
+      mesaj: 'Bu hafta kıyma 250₺, kuşbaşı 280₺! Mahalleye özel fiyat 🥩',
+      telefon: '05321234567',
+      status: 'approved',
+      createdAt: serverTimestamp()
+    });
+    await addDoc(collection(db,'ilanlar'), {
+      uid: currentUser.uid,
+      baslik: 'Gri Tekir Kedi Kayboldu',
+      aciklama: 'Apartman önünde son görüldü, boynunda kırmızı tasma var.',
+      kategori: 'kayip',
+      status: 'approved',
+      createdAt: serverTimestamp()
+    });
+    await addDoc(collection(db,'ilanlar'), {
+      uid: currentUser.uid,
+      baslik: 'Az Kullanılmış Bisiklet Satılık',
+      aciklama: '26 jant, iyi durumda, 2500₺.',
+      kategori: 'satilik',
+      status: 'approved',
+      createdAt: serverTimestamp()
+    });
+    showToast('Test verileri eklendi! Anasayfayı yenileyin. ✅');
+  } catch(e) {
+    showToast('Test verisi eklenemedi: ' + (e.code || e.message), true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🌱 Test Verisi Ekle (haber + kampanya + ilan)'; }
+  }
+};
+
 function loadProfile() {
   if(!currentUser){
     document.getElementById('profileContent').innerHTML=`
@@ -979,7 +1044,10 @@ function loadProfile() {
           <div class="ps-item"><div class="ps-num">${currentRole?'🏅':'—'}</div><div class="ps-lbl">Rol</div></div>
         </div>
       </div>
-      <div class="profile-section-title">İlanlarım</div>`;
+      <div class="profile-section-title">İlanlarım</div>
+      <div style="padding:0 16px 8px;">
+        <button onclick="window.seedTestData()" id="seedBtn" style="width:100%;background:#EDE7F6;color:#4527A0;border:1.5px dashed #B39DDB;padding:12px;border-radius:12px;font-size:13px;font-weight:800;cursor:pointer;">🌱 Test Verisi Ekle (haber + kampanya + ilan)</button>
+      </div>`;
     if(snap.empty) html+='<div style="padding:20px;text-align:center;color:#8E8E93;">Henüz ilan vermediniz.</div>';
     snap.forEach(d=>{
       const data=d.data();
@@ -2479,7 +2547,7 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
       <div class="burger" onclick="window.openUserPanel()"><span></span><span></span><span></span></div>
       <div class="ah-brand">
         <div class="ah-name">Mutlular Haber</div>
-        <div class="ah-sub">Mahallenin Sesi, Hepimizin Haberi</div>
+        <div class="ah-sub">Mahallenin Sesi, Hepimizin Haberi <span style="opacity:.55;font-size:9px;">· v5.4</span></div>
       </div>
       <div class="ah-right">
         <a id="adminHeaderLink" href="mutlular-admin.html" target="_blank" style="display:none;align-items:center;gap:4px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.3);border-radius:20px;padding:5px 10px;text-decoration:none;font-size:11px;font-weight:800;color:#fff;">⚙️ Panel</a>
@@ -2496,21 +2564,6 @@ html,body{height:100%;font-family:'Inter',sans-serif;background:var(--bg);}
        SCREEN: HOME
   ════════════════════════════════ -->
   <div class="screen active" id="scr-home">
-    <!-- Quick Actions -->
-    <div class="qa-section">
-      <div class="qa-grid-2">
-        <div class="qa-card-lg" onclick="window.toggleFabMenu()" id="fabMainBtn">
-          <div class="qa-icon-box-lg" style="background:#F3E5F5;">📋</div>
-          <div class="qa-title-lg">İlan Ver</div>
-          <div class="qa-sub">Kayıp · Satılık · Acil</div>
-        </div>
-        <div class="qa-card-lg" onclick="window.openKursusModal()">
-          <div class="qa-icon-box-lg" style="background:#FFF3E0;">📢</div>
-          <div class="qa-title-lg">Söz Hakkı</div>
-          <div class="qa-sub">Sorun Bildir</div>
-        </div>
-      </div>
-    </div>
 
     <!-- Scroll -->
     <div class="scroll-area">
