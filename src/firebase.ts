@@ -192,6 +192,7 @@ export interface UserProfile {
   photoURL?: string;
   isApproved?: boolean;
   credits?: number;
+  welcomeBonusGiven?: boolean;
   esnafKategori?: string;
   isyeri?: string;
   businessName?: string;
