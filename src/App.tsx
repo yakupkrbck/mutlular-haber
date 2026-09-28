@@ -157,6 +157,7 @@ import {
   VolumeX,
   Play
 } from 'lucide-react';
+import PhotoUploadField from './PhotoUploadField';
 
 const ADMIN_PHONE = '905321112233'; // Dijital Mutlular / Mutlular Haber Portalı Koordinatör WhatsApp Hattı
 
@@ -1794,9 +1795,7 @@ export default function App() {
   const handleAddPhotoToEdit = (urlToAdd?: string) => {
     const url = (urlToAdd || newPhotoUrl).trim();
     if (!url) return;
-    if (!editReqPhotos.includes(url)) {
-      setEditReqPhotos([...editReqPhotos, url]);
-    }
+    setEditReqPhotos((prev) => (prev.includes(url) ? prev : [...prev, url]));
     setNewPhotoUrl('');
   };
 
@@ -8426,8 +8425,8 @@ export default function App() {
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-500 block mb-1">Fotoğraf URL (İsteğe bağlı)</label>
-                <input name="fotoUrl" type="url" placeholder="https://..." className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500" />
+                <label className="text-[11px] font-bold text-slate-500 block mb-1">Fotoğraf (İsteğe bağlı)</label>
+                <PhotoUploadField name="fotoUrl" folder="mutlular_haber/haberler" accentClass="bg-blue-600 hover:bg-blue-700 text-white" />
               </div>
 
               {isUserAdmin || isUserEditor ? (
@@ -8614,8 +8613,8 @@ export default function App() {
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-600 block mb-1">Davetiye / Fotoğraf Linki (Opsiyonel)</label>
-                <input name="davetiyeFoto" type="url" placeholder="https://..." defaultValue="https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80" className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-pink-500" />
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">Davetiye / Fotoğraf (Opsiyonel)</label>
+                <PhotoUploadField name="davetiyeFoto" defaultValue="https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80" folder="mutlular_haber/davetler" accentClass="bg-pink-600 hover:bg-pink-700 text-white" />
               </div>
 
               <button
@@ -8836,17 +8835,17 @@ export default function App() {
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-600 block mb-1">Fotoğraf URL (Opsiyonel)</label>
-                <input
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">Fotoğraf (Opsiyonel)</label>
+                <PhotoUploadField
+                  key={marketModalType}
                   name="fotoUrl"
-                  type="url"
-                  placeholder="https://..."
                   defaultValue={
                     marketModalType === 'emlak'
                       ? 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80'
                       : 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80'
                   }
-                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none"
+                  folder="mutlular_haber/ilanlar"
+                  accentClass="bg-slate-900 hover:bg-slate-800 text-white"
                 />
               </div>
 
@@ -9480,26 +9479,19 @@ export default function App() {
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-400 italic py-1">
-                    Henüz fotoğraf eklenmemiş. Aşağıdan yeni fotoğraf URL'si ekleyebilir veya hazır görsellerden seçebilirsiniz.
+                    Henüz fotoğraf eklenmemiş. Aşağıdan fotoğraf yükleyebilir veya hazır görsellerden seçebilirsiniz.
                   </p>
                 )}
 
-                {/* Yeni Fotoğraf URL Ekleme */}
-                <div className="flex gap-2 pt-1">
-                  <input
-                    type="url"
-                    value={newPhotoUrl}
-                    onChange={(e) => setNewPhotoUrl(e.target.value)}
-                    placeholder="https://... fotoğraf URL'si yapıştırın"
-                    className="flex-1 text-xs p-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500"
+                {/* Yeni Fotoğraf Yükleme */}
+                <div className="pt-1">
+                  <PhotoUploadField
+                    value=""
+                    onChange={(url) => { if (url) handleAddPhotoToEdit(url); }}
+                    folder="mutlular_haber/talepler"
+                    buttonLabel="Fotoğraf Yükle"
+                    accentClass="bg-amber-600 hover:bg-amber-700 text-white"
                   />
-                  <button
-                    type="button"
-                    onClick={() => handleAddPhotoToEdit()}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all shrink-0 flex items-center gap-1 cursor-pointer"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" /> Ekle
-                  </button>
                 </div>
 
                 {/* Hızlı Örnek Görseller */}
@@ -9918,13 +9910,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <input
-                  type="url"
-                  value={editPhotoURL}
-                  onChange={(e) => setEditPhotoURL(e.target.value)}
-                  placeholder="https://... fotoğraf URL'si veya aşağıdan seçin"
-                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500"
-                />
+                <PhotoUploadField value={editPhotoURL} onChange={setEditPhotoURL} round folder="mutlular_haber/avatars" buttonLabel="Profil Fotoğrafı Yükle" accentClass="bg-red-600 hover:bg-red-700 text-white" />
 
                 {/* Hızlı Hazır Avatarlar */}
                 <div className="flex items-center gap-2 pt-0.5">
@@ -10057,13 +10043,7 @@ export default function App() {
                   {/* Vergi Levhası / Belge Fotoğrafı */}
                   <div>
                     <label className="text-[11px] font-bold text-amber-900 block mb-1">Vergi Levhası / Belge Fotoğrafı</label>
-                    <input
-                      type="url"
-                      value={editVergiLevhasiFoto}
-                      onChange={(e) => setEditVergiLevhasiFoto(e.target.value)}
-                      placeholder="https://... belge görseli URL'si"
-                      className="w-full text-xs p-2.5 bg-white border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500"
-                    />
+                    <PhotoUploadField value={editVergiLevhasiFoto} onChange={setEditVergiLevhasiFoto} folder="mutlular_haber/belgeler" buttonLabel="Belge Fotoğrafı Yükle" accentClass="bg-amber-600 hover:bg-amber-700 text-white" />
                   </div>
 
                   {/* Uzmanlık Etiketleri */}
@@ -10315,20 +10295,14 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                       <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Vergi Levhası / Ustalık Belgesi (Fotoğraf URL)</span>
+                      <span>Vergi Levhası / Ustalık Belgesi (Fotoğraf)</span>
                     </label>
                     <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                       Güven Rozeti Kazandırır
                     </span>
                   </div>
 
-                  <input
-                    type="url"
-                    value={artisanTaxPlatePhoto}
-                    onChange={(e) => setArtisanTaxPlatePhoto(e.target.value)}
-                    placeholder="https://... belge görseli URL'si"
-                    className="w-full text-xs p-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500"
-                  />
+                  <PhotoUploadField value={artisanTaxPlatePhoto} onChange={setArtisanTaxPlatePhoto} folder="mutlular_haber/belgeler" buttonLabel="Belge Fotoğrafı Yükle" accentClass="bg-amber-600 hover:bg-amber-700 text-white" />
 
                   {/* Hazır Örnek Belge Seçenekleri */}
                   <div className="flex items-center gap-2">
@@ -10668,15 +10642,10 @@ export default function App() {
 
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    Fotoğraf URL (İsteğe Bağlı)
+                    Fotoğraf (İsteğe Bağlı)
                   </label>
-                  <input
-                    type="url"
-                    value={campFoto}
-                    onChange={(e) => setCampFoto(e.target.value)}
-                    placeholder="https://... (boşsa dükkan görseli atanır)"
-                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500"
-                  />
+                  <PhotoUploadField value={campFoto} onChange={setCampFoto} folder="mutlular_haber/kampanyalar" accentClass="bg-amber-600 hover:bg-amber-700 text-white" />
+                  <p className="text-[10px] text-slate-400 mt-1">Fotoğraf yüklemezseniz dükkan görseli atanır.</p>
                 </div>
               </div>
 
@@ -10949,15 +10918,9 @@ export default function App() {
               {/* Fotoğraf Ekleme (Opsiyonel) */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-700 block">
-                  Fotoğraf Bağlantısı (Opsiyonel)
+                  Fotoğraf (Opsiyonel)
                 </label>
-                <input
-                  type="url"
-                  value={kursuFoto}
-                  onChange={(e) => setKursuFoto(e.target.value)}
-                  placeholder="https://... fotoğraf bağlantısı (varsa)"
-                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
-                />
+                <PhotoUploadField value={kursuFoto} onChange={setKursuFoto} folder="mutlular_haber/kursus" accentClass="bg-indigo-600 hover:bg-indigo-700 text-white" />
               </div>
 
               {/* Bilgilendirme kutucuğu */}

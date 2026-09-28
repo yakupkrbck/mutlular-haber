@@ -23,6 +23,7 @@ import {
   Filter
 } from 'lucide-react';
 import { type SampleNewsItem } from './mockNeighborhoodData';
+import PhotoUploadField from './PhotoUploadField';
 import { type UserProfile, type UserRole } from './firebase';
 
 interface MutlularAdminEditorPanelProps {
@@ -669,15 +670,9 @@ export function MutlularAdminEditorPanel({
                 {/* Görsel URL & Hızlı Şablonlar */}
                 <div className="space-y-2">
                   <label className="text-xs font-black text-slate-700 block">
-                    Haber Görseli URL
+                    Haber Görseli
                   </label>
-                  <input
-                    type="url"
-                    value={newsImageUrl}
-                    onChange={(e) => setNewsImageUrl(e.target.value)}
-                    placeholder="https://..."
-                    className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:border-blue-500"
-                  />
+                  <PhotoUploadField value={newsImageUrl} onChange={setNewsImageUrl} folder="mutlular_haber/haberler" buttonLabel="Haber Fotoğrafı Yükle" accentClass="bg-blue-600 hover:bg-blue-700 text-white" />
 
                   {/* Hazır Görsel Seçenekleri */}
                   <div>
@@ -1052,12 +1047,13 @@ export function MutlularAdminEditorPanel({
               </div>
 
               <div>
-                <label className="text-xs font-black text-slate-700 block mb-1">Görsel URL</label>
-                <input
-                  type="url"
+                <label className="text-xs font-black text-slate-700 block mb-1">Görsel</label>
+                <PhotoUploadField
                   value={editingTip.imageURL || ''}
-                  onChange={(e) => setEditingTip({ ...editingTip, imageURL: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  onChange={(url) => setEditingTip({ ...editingTip, imageURL: url })}
+                  folder="mutlular_haber/haberler"
+                  buttonLabel="Fotoğraf Yükle"
+                  accentClass="bg-blue-600 hover:bg-blue-700 text-white"
                 />
               </div>
 
