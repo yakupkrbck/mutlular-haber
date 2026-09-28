@@ -60,6 +60,7 @@ export const db = (() => {
   try {
     return initializeFirestore(app, {
       experimentalAutoDetectLongPolling: true,
+      ignoreUndefinedProperties: true,
     }, firestoreDbId);
   } catch {
     return firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
