@@ -1,0 +1,6 @@
+{
+  "name": "Dijital Mutlular",
+  "description": "Mahalle Süper Uygulaması - Haber Bülteni, Alım Satım, Mahalle Pazarı, Kayıp İlanları ve Usta Hizmetleri",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

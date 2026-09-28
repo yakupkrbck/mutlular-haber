@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'yakupkrbck@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isEditor() {
+      return isAdmin() || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'editor'
+      );
+    }
+
+    // USERS (Kullanıcı Profilleri & Roller)
+    match /users/{userId} {
+      allow read, create, update: if true;
+      allow delete: if true;
+    }
+
+    // SERVICE REQUESTS (Usta & Hizmet Talepleri)
+    match /service_requests/{requestId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    // OFFERS (Esnaf Teklifleri)
+    match /offers/{offerId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.esnafUid) || isAdmin());
+    }
+
+    // MARKETPLACE (Emlak & 2. El Eşya)
+    match /marketplace_items/{itemId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    // LOST & FOUND (Kayıp & Buluntu)
+    match /lost_found_items/{itemId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    // MAHALLE CEMİYETLERİ & DAVETLER (Düğün, Nişan, Sünnet vb.)
+    match /mahalle_davetleri/{davetId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    // ESNAF KAMPANYALARI & DÜKKANLAR
+    match /esnaf_kampanyalar/{kId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    // HABERLER & DUYURULAR & İHBARLAR
+    match /haberler/{haberId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if isEditor() || isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow delete: if isEditor() || isAdmin();
+    }
+
+    // MAHALLE KÜRSÜSÜ (Görüş, Sorun ve Yorumlar)
+    match /mahalle_kursusu/{kursuId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+    }
+
+    // CENAZE & VEFAT İLANLARI (Taziye Duyuruları)
+    match /cenaze_ilanlari/{cId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // CREDIT TRANSACTIONS
+    match /credit_transactions/{txId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // TEST / DIAGNOSTICS
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Catch-all
+    match /{document=**} {
+      allow read: if true;
+      allow write: if isAuthenticated() || true;
+    }
+  }
+}

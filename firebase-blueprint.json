@@ -1,0 +1,213 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Mahalle sakini veya esnaf kullanıcı profili",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["sakin", "esnaf", "editor", "admin", "resident", "artisan"] },
+        "isEsnaf": { "type": "boolean" },
+        "businessName": { "type": "string" },
+        "credits": { "type": "number" },
+        "calismaSaatleri": { "type": "string" },
+        "vergiLevhasiFoto": { "type": "string" },
+        "uzmanlikEtiketleri": { "type": "array", "items": { "type": "string" } },
+        "esnafAciklama": { "type": "string" },
+        "newsNotificationPreferences": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "sonDakikaOnly": { "type": "boolean" },
+            "soundAlert": { "type": "boolean" },
+            "browserPush": { "type": "boolean" },
+            "vibration": { "type": "boolean" }
+          }
+        },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name"]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Mahallelinin açtığı usta ve hizmet talebi",
+      "type": "object",
+      "properties": {
+        "baslik": { "type": "string" },
+        "aciklama": { "type": "string" },
+        "kategori": { "type": "string" },
+        "altKategori": { "type": "string" },
+        "aciliyet": { "type": "string" },
+        "konum": { "type": "string" },
+        "teklifSayisi": { "type": "number" },
+        "status": { "type": "string" },
+        "sakinAdi": { "type": "string" },
+        "sakinTelefon": { "type": "string" }
+      },
+      "required": ["baslik", "kategori", "sakinAdi", "sakinTelefon"]
+    },
+    "MarketplaceItem": {
+      "title": "MarketplaceItem",
+      "description": "Mahalle emlak veya 2. el eşya ilanı",
+      "type": "object",
+      "properties": {
+        "baslik": { "type": "string" },
+        "aciklama": { "type": "string" },
+        "fiyat": { "type": "number" },
+        "kategori": { "type": "string" },
+        "durum": { "type": "string" },
+        "saticiAdi": { "type": "string" },
+        "saticiTelefon": { "type": "string" },
+        "ilanTuru": { "type": "string", "enum": ["emlak", "ikinci_el"] },
+        "emlakTuru": { "type": "string", "enum": ["kiralik", "satilik", "devren"] },
+        "odaSayisi": { "type": "string" },
+        "metrekare": { "type": "number" },
+        "kat": { "type": "string" },
+        "isitma": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["baslik", "fiyat", "saticiAdi", "saticiTelefon"]
+    },
+    "MahalleDavet": {
+      "title": "MahalleDavet",
+      "description": "Düğün, nişan, sünnet ve kutlama cemiyet davetiyesi",
+      "type": "object",
+      "properties": {
+        "tur": { "type": "string" },
+        "turEtiketi": { "type": "string" },
+        "baslik": { "type": "string" },
+        "davetSahipleri": { "type": "string" },
+        "gelinDamat": { "type": "string" },
+        "tarih": { "type": "string" },
+        "saat": { "type": "string" },
+        "mekanAdi": { "type": "string" },
+        "salonBilgisi": { "type": "string" },
+        "adres": { "type": "string" },
+        "aciklama": { "type": "string" },
+        "iletisimKisi": { "type": "string" },
+        "iletisimTelefon": { "type": "string" },
+        "davetiyeFoto": { "type": "string" },
+        "katilanSayisi": { "type": "number" }
+      },
+      "required": ["baslik", "tur", "tarih", "saat", "mekanAdi", "adres", "iletisimTelefon"]
+    },
+    "LostFoundItem": {
+      "title": "LostFoundItem",
+      "description": "Kayıp veya buluntu eşya ve evcil hayvan ilanı",
+      "type": "object",
+      "properties": {
+        "baslik": { "type": "string" },
+        "aciklama": { "type": "string" },
+        "tur": { "type": "string", "enum": ["kayip", "bulundu"] },
+        "kategori": { "type": "string" },
+        "konum": { "type": "string" },
+        "iletisimTelefon": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["baslik", "tur", "iletisimTelefon"]
+    },
+    "EsnafKampanya": {
+      "title": "EsnafKampanya",
+      "description": "Mahalle esnafı indirim ve kampanyası",
+      "type": "object",
+      "properties": {
+        "baslik": { "type": "string" },
+        "isyeriAdi": { "type": "string" },
+        "aciklama": { "type": "string" },
+        "indirimOrani": { "type": "string" },
+        "telefon": { "type": "string" },
+        "adres": { "type": "string" },
+        "kategori": { "type": "string" }
+      },
+      "required": ["baslik", "isyeriAdi", "telefon"]
+    },
+    "NewsItem": {
+      "title": "NewsItem",
+      "description": "Mahalle güncel haber veya duyuru bülteni",
+      "type": "object",
+      "properties": {
+        "baslik": { "type": "string" },
+        "ozet": { "type": "string" },
+        "icerik": { "type": "string" },
+        "kategori": { "type": "string" },
+        "authorName": { "type": "string" },
+        "tarihStr": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "isTip": { "type": "boolean" },
+        "authorPhone": { "type": "string" },
+        "sonDakika": { "type": "boolean" },
+        "imageURL": { "type": "string" }
+      },
+      "required": ["baslik", "ozet", "icerik"]
+    },
+    "MahalleKursusu": {
+      "title": "MahalleKursusu",
+      "description": "Mahalle serbest kürsüsü, görüş, öneri ve dert bildirimleri",
+      "type": "object",
+      "properties": {
+        "baslik": { "type": "string" },
+        "icerik": { "type": "string" },
+        "kategori": { "type": "string" },
+        "authorName": { "type": "string" },
+        "destekSayisi": { "type": "number" },
+        "konum": { "type": "string" }
+      },
+      "required": ["baslik", "icerik", "authorName"]
+    },
+    "DeceasedItem": {
+      "title": "DeceasedItem",
+      "description": "Vefat ve cenaze duyuruları, taziye bilgileri",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "family": { "type": "string" },
+        "mosque": { "type": "string" },
+        "prayerTime": { "type": "string" },
+        "cemetery": { "type": "string" },
+        "dateStr": { "type": "string" }
+      },
+      "required": ["fullName", "mosque", "prayerTime"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Kullanıcı profilleri"
+    },
+    "/service_requests/{requestId}": {
+      "schema": "ServiceRequest",
+      "description": "Mahalle usta ve hizmet talepleri"
+    },
+    "/marketplace_items/{itemId}": {
+      "schema": "MarketplaceItem",
+      "description": "Alım satım pazarı (emlak ve 2. el)"
+    },
+    "/mahalle_davetleri/{davetId}": {
+      "schema": "MahalleDavet",
+      "description": "Mahalle cemiyet ve etkinlik davetiyeleri"
+    },
+    "/lost_found_items/{itemId}": {
+      "schema": "LostFoundItem",
+      "description": "Kayıp ve buluntu bildirimleri"
+    },
+    "/esnaf_kampanyalar/{kId}": {
+      "schema": "EsnafKampanya",
+      "description": "Esnaf indirim ve kampanyaları"
+    },
+    "/haberler/{haberId}": {
+      "schema": "NewsItem",
+      "description": "Mahalle haberleri ve bülten"
+    },
+    "/mahalle_kursusu/{kursuId}": {
+      "schema": "MahalleKursusu",
+      "description": "Mahalle kürsüsü bildirimleri"
+    },
+    "/cenaze_ilanlari/{cId}": {
+      "schema": "DeceasedItem",
+      "description": "Vefat ve cenaze taziye duyuruları"
+    }
+  }
+}
