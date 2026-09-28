@@ -158,6 +158,7 @@ import {
   Play
 } from 'lucide-react';
 import PhotoUploadField from './PhotoUploadField';
+import { deleteField } from 'firebase/firestore';
 
 const ADMIN_PHONE = '905321112233'; // Dijital Mutlular / Mutlular Haber Portalı Koordinatör WhatsApp Hattı
 
@@ -1174,6 +1175,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [demoRole, setDemoRole] = useState<UserRole>('sakin');
+  // Sunucudaki (gerçek) rol. Rol önizleme yalnızca gerçek yöneticiye açıktır ve hiçbir zaman kaydedilmez.
+  const [realRole, setRealRole] = useState<UserRole>('sakin');
+  // Kayıt / Google girişi sırasında otomatik "sakin" profil oluşturulmasını engeller (yarış durumu)
+  const suppressAutoProfileRef = useRef(false);
   const [allUsersList, setAllUsersList] = useState<UserProfile[]>(INITIAL_USERS);
   const [showAdminPanelModal, setShowAdminPanelModal] = useState<boolean>(false);
 
@@ -1865,6 +1870,7 @@ export default function App() {
   };
 
   // 1. Auth Listener & Profile Loader
+  // Oturum yalnızca Firebase Authentication üzerinden doğrulanır (tarayıcıda saklanan uid'ye güvenilmez).
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -1880,13 +1886,19 @@ export default function App() {
               data.credits = 9999;
               await updateDoc(userRef, { role: 'admin', credits: 9999 });
             }
+            // Eski sürümlerden kalan düz metin şifre alanını Firestore'dan sil
+            if ((data as any).passwordHash !== undefined) {
+              delete (data as any).passwordHash;
+              updateDoc(userRef, { passwordHash: deleteField() }).catch(() => {});
+            }
             if (data.newsNotificationPreferences) {
               setNewsNotifPrefs(data.newsNotificationPreferences);
               localStorage.setItem('dijitalmutlular_news_notif_prefs', JSON.stringify(data.newsNotificationPreferences));
             }
             setProfile(data);
             setDemoRole(data.role);
-          } else {
+            setRealRole(data.role);
+          } else if (!suppressAutoProfileRef.current) {
             const newProfile: UserProfile = {
               uid: currentUser.uid,
               name: currentUser.displayName || (isUserAdmin ? 'Yakup Bey (Yönetici)' : currentUser.email || 'Mahalle Sakini'),
@@ -1899,33 +1911,17 @@ export default function App() {
             };
             await setDoc(userRef, newProfile);
             setProfile(newProfile);
-            setDemoRole(isUserAdmin ? 'admin' : 'sakin');
+            setDemoRole(newProfile.role);
+            setRealRole(newProfile.role);
           }
         } catch (e: any) {
           console.warn('Profile load err:', e.message);
         }
       } else {
-        const localSessionStr = localStorage.getItem('dijitalmutlular_active_session');
-        if (localSessionStr) {
-          try {
-            const sess = JSON.parse(localSessionStr);
-            if (sess && sess.uid) {
-              const snap = await getDoc(doc(db, 'users', sess.uid));
-              if (snap.exists()) {
-                const data = snap.data() as UserProfile;
-                const isUserAdmin = data.email === 'yakupkrbck@gmail.com';
-                const resolvedRole = isUserAdmin ? 'admin' : (data.role || 'sakin');
-                const fullProfile = { ...data, uid: sess.uid, role: resolvedRole };
-                setUser({ uid: sess.uid, email: data.email, displayName: data.name } as any);
-                setProfile(fullProfile);
-                setDemoRole(resolvedRole);
-                return;
-              }
-            }
-          } catch (_) {}
-        }
+        localStorage.removeItem('dijitalmutlular_active_session');
         setProfile(null);
         setDemoRole('sakin');
+        setRealRole('sakin');
       }
     });
 
@@ -2257,6 +2253,7 @@ export default function App() {
         if (user?.uid === targetUid) {
           setProfile(prev => prev ? { ...prev, role: newRole } : prev);
           setDemoRole(newRole);
+          setRealRole(newRole);
         }
       }
       showToast(`Kullanıcı rolü başarıyla güncellendi: ${newRole} ✅`);
@@ -2641,39 +2638,23 @@ export default function App() {
     showToast("Vefat ve cenaze ilanı duyuruldu. Merhuma Allah'tan rahmet, kederli ailesine başsağlığı dileriz. 🕊️");
   };
 
-  // Demo Role Switcher
+  // Rol Önizleme: yalnızca gerçek yönetici kullanabilir; sadece ekrandaki görünümü değiştirir, hiçbir şey kaydedilmez.
   const toggleDemoRole = (newRole: UserRole) => {
+    if (realRole !== 'admin' || !profile) return;
     setDemoRole(newRole);
-    if (profile) {
-      const updated = {
-        ...profile,
-        role: newRole,
-        credits: newRole === 'admin' ? 9999 : newRole === 'esnaf' ? (profile.credits || 8) : profile.credits,
-        isyeri: newRole === 'esnaf' ? (profile.isyeri || 'Mutlular Tesisat & Yapı') : profile.isyeri
-      };
-      setProfile(updated);
-      if (user) {
-        updateDoc(doc(db, 'users', user.uid), { role: newRole }).catch(() => {});
-      }
-    } else {
-      setProfile({
-        uid: 'demo_user',
-        name: newRole === 'esnaf' ? 'Hasan Usta (Esnaf)' : newRole === 'admin' ? 'Yakup Bey (Yönetici)' : newRole === 'editor' ? 'Selin Çelik (Editör)' : 'Mehmet Komşu',
-        email: 'demo@dijitalmutlular.com',
-        role: newRole,
-        credits: newRole === 'admin' ? 9999 : newRole === 'editor' ? 500 : newRole === 'esnaf' ? 8 : 0,
-        isyeri: newRole === 'esnaf' ? 'Mutlular Teknik Servis' : undefined,
-        telefon: '05321112233',
-        isApproved: true
-      });
-    }
+    setProfile({
+      ...profile,
+      role: newRole,
+      credits: newRole === 'admin' ? 9999 : newRole === 'esnaf' ? (profile.credits || 8) : profile.credits,
+      isyeri: newRole === 'esnaf' ? (profile.isyeri || 'Mutlular Tesisat & Yapı') : profile.isyeri
+    });
     const roleNames: Record<UserRole, string> = {
       admin: '👑 Yönetici (Admin)',
       editor: '✍️ Editör (Editor)',
       esnaf: '🏪 Mahalle Esnafı',
       sakin: '👤 Mahalle Sakini'
     };
-    showToast(`Aktif rol değiştirildi: ${roleNames[newRole]} 🔄`);
+    showToast(`Önizleme rolü: ${roleNames[newRole]} 🔄 (yalnızca ekranda görünür, kaydedilmez)`);
   };
 
   // Auth Operations
@@ -2687,45 +2668,13 @@ export default function App() {
           return;
         }
         const emailClean = authEmail.trim().toLowerCase();
-        try {
-          await signInWithEmailAndPassword(auth, emailClean, authPassword);
-          localStorage.removeItem('dijitalmutlular_active_session');
-          setShowAuthModal(false);
-          showToast('Giriş başarılı! Hoş geldiniz 👋');
-          return;
-        } catch (authErr: any) {
-          // If operation-not-allowed or user exists in Firestore fallback
-          try {
-            const qUsers = query(collection(db, 'users'), where('email', '==', emailClean));
-            const snap = await getDocs(qUsers);
-            if (!snap.empty) {
-              const matchedDoc = snap.docs[0];
-              const uData = matchedDoc.data() as UserProfile;
-              if (uData.passwordHash && uData.passwordHash !== authPassword) {
-                setAuthError('Hatalı şifre girdiniz. Lütfen kontrol ediniz.');
-                return;
-              }
-              const isUserAdmin = emailClean === 'yakupkrbck@gmail.com';
-              const resolvedRole = isUserAdmin ? 'admin' : (uData.role || 'sakin');
-              const resolvedProfile = { ...uData, uid: matchedDoc.id, role: resolvedRole };
-              setUser({ uid: matchedDoc.id, email: emailClean, displayName: resolvedProfile.name } as any);
-              setProfile(resolvedProfile);
-              setDemoRole(resolvedRole);
-              localStorage.setItem('dijitalmutlular_active_session', JSON.stringify({ uid: matchedDoc.id, email: emailClean, name: resolvedProfile.name }));
-              setShowAuthModal(false);
-              showToast(`Giriş başarılı! Hoş geldiniz ${resolvedProfile.name} 👋`);
-              return;
-            }
-          } catch (dbErr) {
-            console.warn('DB fallback login error:', dbErr);
-          }
-          if (authErr.code === 'auth/wrong-password' || authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential') {
-            setAuthError('E-posta veya şifre hatalı. Lütfen kontrol edip tekrar deneyiniz.');
-          } else {
-            setAuthError('Giriş yapılamadı: ' + (authErr.message || authErr));
-          }
-          return;
-        }
+        // Yalnızca Firebase Authentication ile doğrulanır; hata olursa aşağıdaki catch mesajı gösterir.
+        await signInWithEmailAndPassword(auth, emailClean, authPassword);
+        localStorage.removeItem('dijitalmutlular_active_session');
+        setAuthPassword('');
+        setShowAuthModal(false);
+        showToast('Giriş başarılı! Hoş geldiniz 👋');
+        return;
       } else {
         // Register validations
         if (!authName.trim()) {
@@ -2755,40 +2704,32 @@ export default function App() {
         const finalRole: UserRole = isUserAdmin ? 'admin' : authRole;
 
         let userUid = '';
+        suppressAutoProfileRef.current = true;
         try {
           const cred = await createUserWithEmailAndPassword(auth, emailClean, authPassword);
-          await updateProfile(cred.user, { displayName: authName.trim() });
           userUid = cred.user.uid;
-        } catch (firebaseErr: any) {
-          // If operation-not-allowed or permission issue in Firebase Console, fallback seamlessly to Firestore user
-          const qCheck = query(collection(db, 'users'), where('email', '==', emailClean));
-          const existingSnap = await getDocs(qCheck);
-          if (!existingSnap.empty) {
-            setAuthError('Bu e-posta adresi ile zaten kayıtlı bir hesap var. Lütfen Giriş Yap sekmesini kullanın.');
-            return;
-          }
-          userUid = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+          try { await updateProfile(cred.user, { displayName: authName.trim() }); } catch (_) {}
+
+          const newProfile: UserProfile = {
+            uid: userUid,
+            name: authName.trim(),
+            email: emailClean,
+            telefon: authPhone.trim(),
+            role: finalRole,
+            credits: finalRole === 'admin' ? 9999 : (finalRole === 'esnaf' ? 10 : 0),
+            isyeri: finalRole === 'esnaf' ? authIsyeri.trim() : undefined,
+            esnafKategori: finalRole === 'esnaf' ? authEsnafKategori : undefined,
+            isApproved: true,
+            createdAt: new Date()
+          };
+
+          await setDoc(doc(db, 'users', userUid), newProfile);
+          setProfile(newProfile);
+          setDemoRole(finalRole);
+          setRealRole(finalRole);
+        } finally {
+          suppressAutoProfileRef.current = false;
         }
-
-        const newProfile: UserProfile = {
-          uid: userUid,
-          name: authName.trim(),
-          email: emailClean,
-          telefon: authPhone.trim(),
-          role: finalRole,
-          credits: finalRole === 'admin' ? 9999 : (finalRole === 'esnaf' ? 10 : 0),
-          isyeri: finalRole === 'esnaf' ? authIsyeri.trim() : undefined,
-          esnafKategori: finalRole === 'esnaf' ? authEsnafKategori : undefined,
-          passwordHash: authPassword,
-          isApproved: true,
-          createdAt: new Date()
-        };
-
-        await setDoc(doc(db, 'users', userUid), newProfile);
-        setUser({ uid: userUid, email: emailClean, displayName: authName.trim() } as any);
-        setProfile(newProfile);
-        setDemoRole(finalRole);
-        localStorage.setItem('dijitalmutlular_active_session', JSON.stringify({ uid: userUid, email: emailClean, name: authName.trim() }));
         setShowAuthModal(false);
         setAuthPassword('');
 
@@ -2811,8 +2752,12 @@ export default function App() {
         setAuthError('Şifre çok zayıf. En az 6 karakter giriniz.');
       } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         setAuthError('E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol ediniz.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setAuthError('Çok fazla deneme yapıldı. Lütfen biraz bekleyip tekrar deneyiniz.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setAuthError('Bağlantı hatası. İnternet bağlantınızı kontrol edip tekrar deneyiniz.');
       } else {
-        setAuthError(err.message || 'Kayıt sırasında bir hata oluştu.');
+        setAuthError(err.message || 'İşlem sırasında bir hata oluştu.');
       }
     }
   };
@@ -2820,26 +2765,30 @@ export default function App() {
   const handleGoogleSignIn = async () => {
     try {
       setAuthError('');
+      suppressAutoProfileRef.current = true;
       const res = await signInWithPopup(auth, googleProvider);
       const u = res.user;
       const userRef = doc(db, 'users', u.uid);
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
+        const isAdminEmail = u.email === 'yakupkrbck@gmail.com';
+        const newRole: UserRole = isAdminEmail ? 'admin' : authRole;
         const newProfile: UserProfile = {
           uid: u.uid,
           name: u.displayName || 'Mahalle Sakini',
           email: u.email || '',
           telefon: authPhone.trim() || '',
-          role: authRole,
-          credits: authRole === 'esnaf' ? 10 : 0,
-          isyeri: authRole === 'esnaf' ? (authIsyeri.trim() || u.displayName || '') : undefined,
-          esnafKategori: authRole === 'esnaf' ? authEsnafKategori : undefined,
+          role: newRole,
+          credits: isAdminEmail ? 9999 : (authRole === 'esnaf' ? 10 : 0),
+          isyeri: newRole === 'esnaf' ? (authIsyeri.trim() || u.displayName || '') : undefined,
+          esnafKategori: newRole === 'esnaf' ? authEsnafKategori : undefined,
           isApproved: true,
           createdAt: new Date(),
         };
         await setDoc(userRef, newProfile);
         setProfile(newProfile);
-        setDemoRole(authRole);
+        setDemoRole(newRole);
+        setRealRole(newRole);
       }
       setShowAuthModal(false);
       showToast(`Google ile giriş yapıldı! Hoş geldiniz 👋`);
@@ -2851,6 +2800,8 @@ export default function App() {
       } else {
         setAuthError('Google ile giriş hatası: ' + (e.message || e));
       }
+    } finally {
+      suppressAutoProfileRef.current = false;
     }
   };
 
@@ -2862,6 +2813,7 @@ export default function App() {
     setUser(null);
     setProfile(null);
     setDemoRole('sakin');
+    setRealRole('sakin');
     showToast('Oturum kapatıldı, başarıyla çıkış yapıldı. 👋');
   };
 
@@ -3081,50 +3033,36 @@ export default function App() {
 
         const emailClean = artisanRegisterEmail.trim().toLowerCase();
         let userUid = '';
+        suppressAutoProfileRef.current = true;
         try {
           const cred = await createUserWithEmailAndPassword(auth, emailClean, artisanRegisterPassword);
           userUid = cred.user.uid;
-        } catch (firebaseErr: any) {
-          if (firebaseErr.code === 'auth/email-already-in-use') {
-            showToast('Bu e-posta adresi ile zaten kayıtlı bir hesap var. Lütfen giriş yapınız.', true);
-            setArtisanIsSubmitting(false);
-            return;
-          }
-          // Firestore fallback if Auth provider is disabled
-          const qCheck = query(collection(db, 'users'), where('email', '==', emailClean));
-          const existingSnap = await getDocs(qCheck);
-          if (!existingSnap.empty) {
-            showToast('Bu e-posta adresi ile zaten kayıtlı bir hesap var. Lütfen giriş yapınız.', true);
-            setArtisanIsSubmitting(false);
-            return;
-          }
-          userUid = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+
+          const newProfile: UserProfile = {
+            uid: userUid,
+            name: artisanRegisterName.trim() || artisanBusinessName.trim() || 'Esnaf Komşumuz',
+            email: emailClean,
+            role: 'esnaf',
+            telefon: artisanPhone.trim(),
+            isyeri: artisanBusinessName.trim(),
+            esnafKategori: artisanCategory,
+            adres: artisanAddress.trim(),
+            calismaSaatleri: artisanWorkingHours.trim() || 'Pazartesi - Cumartesi: 08:30 - 19:30',
+            vergiLevhasiFoto: artisanTaxPlatePhoto.trim() || undefined,
+            uzmanlikEtiketleri: artisanTags,
+            esnafAciklama: artisanDescription.trim(),
+            credits: 10,
+            isApproved: true,
+            createdAt: new Date(),
+          };
+
+          await setDoc(doc(db, 'users', userUid), newProfile);
+          setProfile(newProfile);
+          setDemoRole('esnaf');
+          setRealRole('esnaf');
+        } finally {
+          suppressAutoProfileRef.current = false;
         }
-
-        const newProfile: UserProfile = {
-          uid: userUid,
-          name: artisanRegisterName.trim() || artisanBusinessName.trim() || 'Esnaf Komşumuz',
-          email: emailClean,
-          role: 'esnaf',
-          telefon: artisanPhone.trim(),
-          isyeri: artisanBusinessName.trim(),
-          esnafKategori: artisanCategory,
-          adres: artisanAddress.trim(),
-          calismaSaatleri: artisanWorkingHours.trim() || 'Pazartesi - Cumartesi: 08:30 - 19:30',
-          vergiLevhasiFoto: artisanTaxPlatePhoto.trim() || undefined,
-          uzmanlikEtiketleri: artisanTags,
-          esnafAciklama: artisanDescription.trim(),
-          passwordHash: artisanRegisterPassword,
-          credits: 10,
-          isApproved: true,
-          createdAt: new Date(),
-        };
-
-        await setDoc(doc(db, 'users', userUid), newProfile);
-        setUser({ uid: userUid, email: emailClean, displayName: newProfile.name } as any);
-        setProfile(newProfile);
-        setDemoRole('esnaf');
-        localStorage.setItem('dijitalmutlular_active_session', JSON.stringify({ uid: userUid, email: emailClean, name: newProfile.name }));
         setShowArtisanRegisterModal(false);
         showToast('🎉 Tebrikler! Esnaf & Usta hesabınız başarıyla oluşturuldu ve 10 teklif kredisi yüklendi!');
       }
@@ -3210,12 +3148,13 @@ export default function App() {
         showToast('Lütfen geçerli bir telefon numarası giriniz (en az 10 hane)', true);
         return;
       }
+      const savedRole: UserRole = (realRole === 'admin' || realRole === 'editor') ? realRole : editRole;
       const updated: UserProfile = {
         ...profile,
         name: editName.trim() || profile.name,
         telefon: editPhone.trim() || profile.telefon,
         photoURL: editPhotoURL.trim() || profile.photoURL,
-        role: editRole,
+        role: savedRole,
         isyeri: editRole === 'esnaf' ? (editIsyeri.trim() || profile.isyeri || editName) : undefined,
         esnafKategori: editRole === 'esnaf' ? (editEsnafKategori || profile.esnafKategori) : undefined,
         adres: editRole === 'esnaf' ? (editAdres.trim() || profile.adres) : profile.adres,
@@ -3241,7 +3180,8 @@ export default function App() {
         });
       }
       setProfile(updated);
-      setDemoRole(editRole);
+      setDemoRole(savedRole);
+      setRealRole(savedRole);
       setShowProfileEditModal(false);
       showToast('Profil ve görsel bilgileriniz başarıyla güncellendi! ✅');
     } catch (e: any) {
@@ -11878,6 +11818,7 @@ export default function App() {
         profile={profile}
         demoRole={demoRole}
         onToggleRole={toggleDemoRole}
+        canSwitchRole={realRole === 'admin'}
         onNavigateTab={(tab) => {
           setActiveTab(tab);
           window.scrollTo({ top: 0, behavior: 'smooth' });

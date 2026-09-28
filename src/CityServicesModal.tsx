@@ -574,6 +574,7 @@ interface HamburgerMenuDrawerProps {
   profile: UserProfile | null;
   demoRole: UserRole;
   onToggleRole: (r: UserRole) => void;
+  canSwitchRole?: boolean;
   onNavigateTab: (tab: any) => void;
   onOpenCityModal: (modal: any) => void;
   onOpenAuth: () => void;
@@ -590,6 +591,7 @@ export function HamburgerMenuDrawer({
   profile,
   demoRole,
   onToggleRole,
+  canSwitchRole = false,
   onNavigateTab,
   onOpenCityModal,
   onOpenAuth,
@@ -662,7 +664,8 @@ export function HamburgerMenuDrawer({
                 )}
               </div>
 
-              {/* Hızlı Rol Değiştirici */}
+              {/* Rol Önizleme (yalnızca gerçek yönetici) */}
+              {canSwitchRole && (
               <div className="pt-2 border-t border-white/10 grid grid-cols-4 gap-1 text-[10px]">
                 <button
                   onClick={() => onToggleRole('sakin')}
@@ -697,6 +700,7 @@ export function HamburgerMenuDrawer({
                   👑 Admin
                 </button>
               </div>
+              )}
 
               {/* Yönetici & Editör Paneli Giriş Butonu */}
               {(demoRole === 'admin' || demoRole === 'editor' || profile?.role === 'admin' || profile?.role === 'editor') && onOpenAdminPanel && (
