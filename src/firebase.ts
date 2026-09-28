@@ -18,9 +18,9 @@ import {
   getDoc, 
   getDocFromServer,
   getDocs, 
-  setDoc, 
-  addDoc, 
-  updateDoc, 
+  setDoc as firestoreSetDoc, 
+  addDoc as firestoreAddDoc, 
+  updateDoc as firestoreUpdateDoc, 
   deleteDoc, 
   query, 
   where, 
@@ -66,6 +66,44 @@ export const db = (() => {
     return firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
   }
 })();
+
+// Firestore undefined değerleri kabul etmez; yazmadan önce undefined alanları temizler.
+// serverTimestamp(), increment(), Timestamp, Date ve referanslar olduğu gibi korunur.
+function stripUndefined(value: any): any {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== undefined).map(stripUndefined);
+  }
+  if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, any> = {};
+      for (const key of Object.keys(value)) {
+        if (value[key] !== undefined) out[key] = stripUndefined(value[key]);
+      }
+      return out;
+    }
+  }
+  return value;
+}
+
+const setDoc: (ref: any, data: any, options?: any) => Promise<void> = (ref, data, options) =>
+  options === undefined
+    ? firestoreSetDoc(ref, stripUndefined(data))
+    : firestoreSetDoc(ref, stripUndefined(data), options);
+
+const addDoc: (ref: any, data: any) => Promise<any> = (ref, data) =>
+  firestoreAddDoc(ref, stripUndefined(data));
+
+const updateDoc: (ref: any, ...args: any[]) => Promise<void> = (ref, ...args) => {
+  if (args.length === 1) {
+    return (firestoreUpdateDoc as any)(ref, stripUndefined(args[0]));
+  }
+  const cleaned: any[] = [];
+  for (let i = 0; i < args.length; i += 2) {
+    if (args[i + 1] !== undefined) cleaned.push(args[i], args[i + 1]);
+  }
+  return (firestoreUpdateDoc as any)(ref, ...cleaned);
+};
 
 // Error Handler definitions adhering to Firebase Integration guidelines
 export enum OperationType {
