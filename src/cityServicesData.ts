@@ -46,6 +46,9 @@ export interface DeceasedItem {
   prayerTime: string;
   cemetery: string;
   dateStr: string;
+  uid?: string;
+  authorName?: string;
+  createdAt?: any;
 }
 
 export interface TouristSpotItem {

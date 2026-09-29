@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { type LiveConfig, EMPTY_LIVE, toEmbedUrl } from './liveStream';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   CheckCircle, 
@@ -54,6 +55,8 @@ interface MutlularAdminEditorPanelProps {
   onRejectTip: (tip: SampleNewsItem, reason?: string) => Promise<void>;
   onDeleteNews: (id?: string, title?: string) => Promise<void>;
   contentSections?: AdminContentSection[];
+  liveConfig?: LiveConfig;
+  onSaveLive?: (cfg: LiveConfig) => Promise<boolean>;
   onDeleteContent?: (col: string, id: string) => Promise<void>;
   onDeleteAllContent?: (col: string) => Promise<void>;
   onUpdateUserRole: (targetUid: string, newRole: UserRole, targetEmail?: string) => Promise<void>;
@@ -75,6 +78,8 @@ export function MutlularAdminEditorPanel({
   onRejectTip,
   onDeleteNews,
   contentSections = [],
+  liveConfig = EMPTY_LIVE,
+  onSaveLive,
   onDeleteContent,
   onDeleteAllContent,
   onUpdateUserRole,
@@ -82,7 +87,7 @@ export function MutlularAdminEditorPanel({
   activeDemoRole = 'admin',
   showToast
 }: MutlularAdminEditorPanelProps) {
-  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content'>('review_tips');
+  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live'>('review_tips');
 
   // Review sub-filter
   const [tipFilter, setTipFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -106,6 +111,13 @@ export function MutlularAdminEditorPanel({
   const [preAssignEmail, setPreAssignEmail] = useState('');
   const [preAssignRole, setPreAssignRole] = useState<UserRole>('editor');
   const [isUpdatingRole, setIsUpdatingRole] = useState<string | null>(null);
+
+  // Canlı yayın taslağı (kayıtlı ayardan başlar)
+  const [liveDraft, setLiveDraft] = useState<LiveConfig>(liveConfig);
+  const [liveSaving, setLiveSaving] = useState(false);
+  useEffect(() => {
+    setLiveDraft({ ...EMPTY_LIVE, ...liveConfig });
+  }, [liveConfig.aktif, liveConfig.baslik, liveConfig.aciklama, liveConfig.url]);
 
   // İçerik yönetimi state
   const [contentCol, setContentCol] = useState<string>('haberler');
@@ -331,6 +343,20 @@ export function MutlularAdminEditorPanel({
               ) : (
                 <Lock className="w-3 h-3 text-slate-400" />
               )}
+            </button>
+
+            {/* Sekme 5: Canlı Yayın (yönetici + editör) */}
+            <button
+              onClick={() => setActiveTab('live')}
+              className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'live'
+                  ? 'bg-white text-red-700 shadow-sm border border-slate-200/80 ring-2 ring-red-500/20'
+                  : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+              }`}
+            >
+              <span>📺</span>
+              <span>Canlı Yayın</span>
+              {liveConfig.aktif && <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />}
             </button>
 
             {/* Sekme 4: İçerik Yönetimi (yalnızca yönetici) */}
@@ -780,6 +806,87 @@ export function MutlularAdminEditorPanel({
           {/* ═════════════════════════════════════════════════════════════
               SEKME 3: KULLANICI & ROL YÖNETİMİ (YÖNETİCİ / ADMIN)
              ═════════════════════════════════════════════════════════════ */}
+          {activeTab === 'live' && (
+            <div className="space-y-4">
+              <div className={`rounded-2xl p-3 text-xs border ${liveDraft.aktif ? 'bg-red-50 border-red-200 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                {liveConfig.aktif
+                  ? '📺 Yayın şu an AÇIK. Sakinler üstteki Canlı Yayın düğmesinden izleyebilir.'
+                  : 'Yayın şu an kapalı. Aşağıya bağlantıyı yazıp "Yayını Başlat" derseniz sitede canlı yayın açılır.'}
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Yayın Başlığı</label>
+                  <input
+                    value={liveDraft.baslik}
+                    maxLength={100}
+                    onChange={(e) => setLiveDraft({ ...liveDraft, baslik: e.target.value })}
+                    placeholder="Örn: Cenaze Namazı Canlı Yayını"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Açıklama (opsiyonel)</label>
+                  <textarea
+                    value={liveDraft.aciklama}
+                    maxLength={300}
+                    rows={2}
+                    onChange={(e) => setLiveDraft({ ...liveDraft, aciklama: e.target.value })}
+                    placeholder="Kısa bilgi: saat, konu, yer…"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Yayın Bağlantısı (https)</label>
+                  <input
+                    value={liveDraft.url}
+                    onChange={(e) => setLiveDraft({ ...liveDraft, url: e.target.value })}
+                    placeholder="YouTube canlı yayın, Facebook video veya Vimeo bağlantısı"
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                    YouTube'da yayını başlattıktan sonra bağlantıyı kopyalayıp buraya yapıştırın. Sürekli kullanılan bir kanal için
+                    <span className="font-mono"> youtube.com/channel/KANAL_ID/live</span> biçimi de çalışır.
+                    {liveDraft.url.trim() && (toEmbedUrl(liveDraft.url)
+                      ? ' ✅ Bu bağlantı uygulama içinde oynatılır.'
+                      : ' ⚠️ Bu bağlantı uygulama içinde oynatılamaz; sakinlere "Yayını Aç" düğmesi gösterilir.')}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={liveSaving}
+                    onClick={async () => {
+                      if (!onSaveLive) return;
+                      setLiveSaving(true);
+                      await onSaveLive({ ...liveDraft, aktif: true });
+                      setLiveSaving(false);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-black cursor-pointer"
+                  >
+                    {liveConfig.aktif ? '💾 Kaydet (yayın açık kalır)' : '🔴 Yayını Başlat'}
+                  </button>
+                  {liveConfig.aktif && (
+                    <button
+                      type="button"
+                      disabled={liveSaving}
+                      onClick={async () => {
+                        if (!onSaveLive) return;
+                        setLiveSaving(true);
+                        await onSaveLive({ ...liveDraft, aktif: false });
+                        setLiveSaving(false);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white text-xs font-black cursor-pointer"
+                    >
+                      ⏹️ Yayını Bitir
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'manage_content' && isAdmin && (
             <div className="space-y-4">
               <div className="bg-red-50 border border-red-200 rounded-2xl p-3 text-xs text-red-800">

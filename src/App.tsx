@@ -31,6 +31,7 @@ import {
   type NewsNotificationPreferences,
   type ServiceRequest,
   type ServiceOffer,
+  type HizmetAlani,
   type MarketplaceItem,
   type LostFoundItem,
   type NewsItem,
@@ -51,7 +52,8 @@ import {
   type SampleNewsItem
 } from './mockNeighborhoodData';
 import { MutlularAdminEditorPanel } from './MutlularAdminEditorPanel';
-import { resolveKategoriId, requestMatchesEsnaf, toMillis, timeAgoTr } from './serviceMatching';
+import { toEmbedUrl, cleanLiveUrl, EMPTY_LIVE, type LiveConfig } from './liveStream';
+import { resolveKategoriId, requestMatchesEsnaf, toMillis, timeAgoTr, ESNAF_TURLERI, DIGER_ALAN, cleanAreaName, customAreaToMainCat, isUstaProfile } from './serviceMatching';
 import {
   PHARMACIES,
   NOTARIES,
@@ -1247,6 +1249,7 @@ export default function App() {
   // ── 📺 MUTLULAR TV & VİTRİN STATE'LERİ ──
   const [mutlularTvActive, setMutlularTvActive] = useState<boolean>(false);
   const [vitrinIndex, setVitrinIndex] = useState<number>(0);
+  const [liveConfig, setLiveConfig] = useState<LiveConfig>(EMPTY_LIVE);
   const [tvMuted, setTvMuted] = useState<boolean>(true);
   const [tvLikes, setTvLikes] = useState<number>(184);
   const [hasLikedTv, setHasLikedTv] = useState<boolean>(false);
@@ -1413,9 +1416,23 @@ export default function App() {
   const [campaigns, setCampaigns] = useState<EsnafCampaign[]>(INITIAL_CAMPAIGNS);
   const [offersMap, setOffersMap] = useState<Record<string, ServiceOffer[]>>({});
   const [notifSeenAt, setNotifSeenAt] = useState<number>(0);
+  const [customAreas, setCustomAreas] = useState<HizmetAlani[]>([]);
+  const [authCustomArea, setAuthCustomArea] = useState('');
+  const [artisanKind, setArtisanKind] = useState<'usta' | 'esnaf'>('usta');
+  const [artisanCustomArea, setArtisanCustomArea] = useState('');
+  const [editHesapTipi, setEditHesapTipi] = useState<'usta' | 'esnaf'>('usta');
+  const [editCustomArea, setEditCustomArea] = useState('');
   const [readDerivedIds, setReadDerivedIds] = useState<string[]>([]);
   const [requestScope, setRequestScope] = useState<'uygun' | 'tumu'>('uygun');
   const [acceptingOfferId, setAcceptingOfferId] = useState<string | null>(null);
+
+  // Ana kategoriler + topluluğun (ustaların "Diğer" ile) eklediği faaliyet alanları
+  const ALL_SERVICE_CATEGORIES = useMemo(() => [
+    ...MAIN_SERVICE_CATEGORIES,
+    ...customAreas
+      .filter((a) => !MAIN_SERVICE_CATEGORIES.some((c) => c.name.toLocaleLowerCase('tr-TR') === a.ad.toLocaleLowerCase('tr-TR')))
+      .map((a) => customAreaToMainCat(a, MAIN_SERVICE_CATEGORIES[0]) as any)
+  ], [customAreas]);
 
   // ── 💍 MAHALLE CEMİYET & DAVETLERİ STATE ──
   const [invitationItems, setInvitationItems] = useState<MahalleDavetItem[]>(INITIAL_INVITATIONS);
@@ -1452,6 +1469,7 @@ export default function App() {
   const [armutSelectedCat, setArmutSelectedCat] = useState<string>('Tesisat & Su');
   const [armutSelectedSub, setArmutSelectedSub] = useState<string>('Su Kaçağı Tespiti');
   const [armutTiming, setArmutTiming] = useState<string>('Hemen / En Kısa Sürede');
+  const [armutPhoto, setArmutPhoto] = useState('');
   const [armutDetail, setArmutDetail] = useState<string>('');
   const [armutAddress, setArmutAddress] = useState<string>('Mutlular Mahallesi, Yıldırım / Bursa');
   const [armutPhone, setArmutPhone] = useState<string>('');
@@ -1473,7 +1491,7 @@ export default function App() {
   const [newServiceReqPhoto, setNewServiceReqPhoto] = useState('');
 
   const handleOpenCategoryRequest = (mainCatId: string, subCatName?: string, defaultTitle?: string) => {
-    const mainCat = MAIN_SERVICE_CATEGORIES.find(c => c.id === mainCatId) || MAIN_SERVICE_CATEGORIES[0];
+    const mainCat = ALL_SERVICE_CATEGORIES.find(c => c.id === mainCatId) || ALL_SERVICE_CATEGORIES[0];
     setModalMainCatId(mainCat.id);
     setSelectedServiceSector(mainCat.name);
     const targetSub = subCatName || mainCat.subCategories[0]?.name || '';
@@ -1487,11 +1505,11 @@ export default function App() {
   };
 
   const handleOpenSectorRequest = (sectorName: string, defaultTitle?: string) => {
-    const matchedMain = MAIN_SERVICE_CATEGORIES.find(c => 
+    const matchedMain = ALL_SERVICE_CATEGORIES.find(c => 
       c.name.toLowerCase() === sectorName.toLowerCase() ||
       c.shortTitle.toLowerCase() === sectorName.toLowerCase() ||
       c.subCategories.some(s => s.name.toLowerCase().includes(sectorName.toLowerCase()))
-    ) || MAIN_SERVICE_CATEGORIES[0];
+    ) || ALL_SERVICE_CATEGORIES[0];
 
     setModalMainCatId(matchedMain.id);
     setSelectedServiceSector(matchedMain.name);
@@ -1567,7 +1585,7 @@ export default function App() {
   };
 
   // Form states
-  const [authRole, setAuthRole] = useState<'sakin' | 'esnaf'>('sakin');
+  const [authRole, setAuthRole] = useState<'sakin' | 'usta' | 'esnaf'>('sakin');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authName, setAuthName] = useState('');
@@ -1604,7 +1622,6 @@ export default function App() {
   const [editEsnafKategori, setEditEsnafKategori] = useState('Tesisat & Su');
   const [editAdres, setEditAdres] = useState('');
   const [editCalismaSaatleri, setEditCalismaSaatleri] = useState('');
-  const [editVergiLevhasiFoto, setEditVergiLevhasiFoto] = useState('');
   const [editUzmanlikEtiketleri, setEditUzmanlikEtiketleri] = useState<string[]>([]);
   const [editUzmanlikInput, setEditUzmanlikInput] = useState('');
   const [editEsnafAciklama, setEditEsnafAciklama] = useState('');
@@ -1615,7 +1632,6 @@ export default function App() {
   const [artisanCategory, setArtisanCategory] = useState('Tesisat & Su');
   const [artisanAddress, setArtisanAddress] = useState('Mutlular Mahallesi, Yıldırım / Bursa');
   const [artisanWorkingHours, setArtisanWorkingHours] = useState('Pazartesi - Cumartesi: 08:30 - 19:30');
-  const [artisanTaxPlatePhoto, setArtisanTaxPlatePhoto] = useState('https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80');
   const [artisanTags, setArtisanTags] = useState<string[]>(['Garantili İşçilik', '7/24 Acil Usta', 'Hızlı Servis']);
   const [artisanTagInput, setArtisanTagInput] = useState('');
   const [artisanPhone, setArtisanPhone] = useState('');
@@ -1995,6 +2011,19 @@ export default function App() {
       }
     }, (err) => console.warn('lostfound firestore:', err.message));
 
+    // Canlı yayın ayarı (yönetici / editör yönetir)
+    const unsubLive = onSnapshot(doc(db, 'ayarlar', 'canli_yayin'), (snap) => {
+      setLiveConfig(snap.exists() ? ({ ...EMPTY_LIVE, ...(snap.data() as any) } as LiveConfig) : EMPTY_LIVE);
+    }, (err) => console.warn('canli_yayin firestore:', err.message));
+
+    // Faaliyet alanları (ustaların eklediği)
+    const unsubAreas = onSnapshot(collection(db, 'hizmet_alanlari'), (snap) => {
+      const items: HizmetAlani[] = [];
+      snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as HizmetAlani));
+      items.sort((a, b) => a.ad.localeCompare(b.ad, 'tr'));
+      setCustomAreas(items);
+    }, (err) => console.warn('hizmet_alanlari firestore:', err.message));
+
     // Service Requests
     const qReq = query(collection(db, 'service_requests'), orderBy('createdAt', 'desc'));
     const unsubReq = onSnapshot(qReq, (snap) => {
@@ -2128,6 +2157,8 @@ export default function App() {
       unsubMarket();
       unsubLf();
       unsubReq();
+      unsubAreas();
+      unsubLive();
       unsubCamp();
       unsubKursu();
       unsubDavet();
@@ -2152,7 +2183,7 @@ export default function App() {
       kategori: newsData.kategori,
       ozet: newsData.ozet,
       icerik: newsData.icerik,
-      imageURL: newsData.imageURL || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80',
+      imageURL: newsData.imageURL || '',
       sonDakika: newsData.sonDakika,
       status: 'approved',
       authorName: newsData.authorName || profile?.name || 'Mutlular Haber',
@@ -2271,11 +2302,11 @@ export default function App() {
     const list: any[] = [];
     const push = (n: any) => list.push({ ...n, time: timeAgoTr(n.ms), read: n.ms <= notifSeenAt || readDerivedIds.includes(n.id) });
 
-    if (profile?.role === 'esnaf') {
+    if (isUstaProfile(profile)) {
       serviceRequests.forEach((r) => {
         if (!r.id || r.uid === user.uid) return;
         if (r.status && r.status !== 'open') return;
-        if (!requestMatchesEsnaf(r, profile, MAIN_SERVICE_CATEGORIES)) return;
+        if (!requestMatchesEsnaf(r, profile, ALL_SERVICE_CATEGORIES)) return;
         const ms = toMillis(r.createdAt) || Date.now();
         push({ id: 'dn_req_' + r.id, type: 'yeni_talep', category: 'YENİ TALEP', icon: '🛠️', badgeColor: 'bg-orange-600', title: `Size uygun yeni talep: ${r.baslik} (${r.kategori})`, ms, requestId: r.id });
       });
@@ -2342,7 +2373,7 @@ export default function App() {
       setShowAuthModal(true);
       return null;
     }
-    const kategoriId = resolveKategoriId(data.kategori, data.altKategori, MAIN_SERVICE_CATEGORIES) || '';
+    const kategoriId = resolveKategoriId(data.kategori, data.altKategori, ALL_SERVICE_CATEGORIES) || '';
     const address = (data.adres || '').trim() || 'Mutlular Mahallesi';
     try {
       const ref = await addDoc(collection(db, 'service_requests'), {
@@ -2417,6 +2448,36 @@ export default function App() {
     }
   };
 
+  // Usta "Diğer" seçince yazdığı faaliyet alanını sisteme ekler (varsa mevcut olanı kullanır). Ad döndürür.
+  const addCustomArea = async (raw: string): Promise<string | null> => {
+    const cleaned = cleanAreaName(raw);
+    if (!cleaned.ok) {
+      showToast(cleaned.error, true);
+      return null;
+    }
+    const existingMain = MAIN_SERVICE_CATEGORIES.find((c) => c.name.toLocaleLowerCase('tr-TR') === cleaned.name.toLocaleLowerCase('tr-TR'));
+    if (existingMain) return existingMain.name;
+    const existing = customAreas.find((a) => a.id === cleaned.slug);
+    if (existing) return existing.ad;
+    if (!auth.currentUser) return cleaned.name;
+    try {
+      const ref = doc(db, 'hizmet_alanlari', cleaned.slug);
+      const snap = await getDoc(ref);
+      if (snap.exists()) return (snap.data() as any).ad || cleaned.name;
+      await setDoc(ref, {
+        ad: cleaned.name,
+        adNorm: cleaned.name.toLocaleLowerCase('tr-TR'),
+        ekleyenUid: auth.currentUser.uid,
+        createdAt: serverTimestamp()
+      });
+      setCustomAreas((prev) => (prev.some((a) => a.id === cleaned.slug) ? prev : [...prev, { id: cleaned.slug, ad: cleaned.name }]));
+      return cleaned.name;
+    } catch (e: any) {
+      showToast('Faaliyet alanı eklenemedi: ' + (e?.code === 'permission-denied' ? 'yetki hatası (Firestore kuralları yayınlandı mı?)' : (e?.message || 'bilinmeyen hata')), true);
+      return null;
+    }
+  };
+
   const handleDeleteNewsItem = async (id?: string, title?: string) => {
     if (id && !id.startsWith('ihbar_') && !id.startsWith('haber_')) {
       try {
@@ -2439,7 +2500,8 @@ export default function App() {
     mahalle_davetleri: setInvitationItems as any,
     esnaf_kampanyalar: setCampaigns as any,
     mahalle_kursusu: setKursuItems as any,
-    cenaze_ilanlari: setDeceasedList as any
+    cenaze_ilanlari: setDeceasedList as any,
+    hizmet_alanlari: setCustomAreas as any
   };
 
   const describeDeleteError = (e: any) =>
@@ -2861,34 +2923,37 @@ export default function App() {
     }
   };
 
-  // Vefat / Cenaze & Taziye İlanı Yayınlama
+  // Vefat / Cenaze & Taziye İlanı Yayınlama (giriş gerekir; ilanı bırakan kişi kaydedilir)
   const handlePublishDeceased = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDeceasedName.trim()) {
+    if (!user) {
+      showToast('Vefat ilanı bırakmak için önce giriş yapmalısınız.', true);
+      setShowNewDeceasedModal(false);
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (newDeceasedName.trim().length < 2) {
       showToast('Lütfen merhum / merhume adı soyadı giriniz.', true);
       return;
     }
-
-    const newDeceasedItem: DeceasedItem = {
-      id: 'vefat_' + Date.now(),
-      fullName: newDeceasedName.trim(),
-      age: newDeceasedAge ? parseInt(newDeceasedAge) : undefined,
-      family: newDeceasedFamily.trim() || 'Ailesi ve Sevenleri',
-      mosque: newDeceasedMosque.trim() || 'Mutlular Fatih Camii',
-      prayerTime: newDeceasedPrayer || 'Öğle Namazını Müteakip',
-      cemetery: newDeceasedCemetery.trim() || 'Hamitler Kent Mezarlığı',
-      dateStr: newDeceasedDate || 'Bugün'
-    };
-
-    setDeceasedList(prev => [newDeceasedItem, ...prev]);
-
+    const ageNum = parseInt(newDeceasedAge, 10);
     try {
       await addDoc(collection(db, 'cenaze_ilanlari'), {
-        ...newDeceasedItem,
+        fullName: newDeceasedName.trim(),
+        age: Number.isFinite(ageNum) && ageNum > 0 && ageNum < 130 ? ageNum : null,
+        family: newDeceasedFamily.trim() || 'Ailesi ve Sevenleri',
+        mosque: newDeceasedMosque.trim() || 'Mutlular Fatih Camii',
+        prayerTime: newDeceasedPrayer || 'Öğle Namazını Müteakip',
+        cemetery: newDeceasedCemetery.trim() || 'Hamitler Kent Mezarlığı',
+        dateStr: newDeceasedDate || 'Bugün',
+        uid: user.uid,
+        authorName: profile?.name || user.displayName || 'Mahalle Sakini',
         createdAt: serverTimestamp()
       });
     } catch (err: any) {
-      console.warn('Firestore cenaze save error:', err.message);
+      showToast('İlan yayınlanamadı: ' + (err?.code === 'permission-denied' ? 'yetki hatası (Firestore kuralları yayınlandı mı?)' : (err?.message || 'bilinmeyen hata')), true);
+      return;
     }
 
     setShowNewDeceasedModal(false);
@@ -2896,6 +2961,52 @@ export default function App() {
     setNewDeceasedAge('');
     setNewDeceasedFamily('');
     showToast("Vefat ve cenaze ilanı duyuruldu. Merhuma Allah'tan rahmet, kederli ailesine başsağlığı dileriz. 🕊️");
+  };
+
+  const canDeleteDeceased = (d: DeceasedItem) => Boolean(user && (isUserAdmin || (d as any).uid === user.uid));
+
+  const handleDeleteDeceased = async (d: DeceasedItem) => {
+    if (!canDeleteDeceased(d)) return;
+    if (!confirm(`"${d.fullName}" ilanı kaldırılsın mı?`)) return;
+    try {
+      await deleteDoc(doc(db, 'cenaze_ilanlari', d.id));
+      setDeceasedList((prev) => prev.filter((x) => x.id !== d.id));
+      showToast('İlan kaldırıldı.');
+    } catch (err: any) {
+      showToast('İlan kaldırılamadı: ' + (err?.code === 'permission-denied' ? 'yetkiniz yok' : (err?.message || 'bilinmeyen hata')), true);
+    }
+  };
+
+  // Canlı yayın ayarını kaydet (yönetici / editör)
+  const handleSaveLive = async (cfg: LiveConfig): Promise<boolean> => {
+    if (!isUserAdmin && !isUserEditor) {
+      showToast('Canlı yayını yalnızca yönetici veya editör değiştirebilir.', true);
+      return false;
+    }
+    const cleanUrl = cfg.url.trim() ? cleanLiveUrl(cfg.url) : '';
+    if (cfg.url.trim() && !cleanUrl) {
+      showToast('Yayın bağlantısı geçerli bir https adresi olmalı.', true);
+      return false;
+    }
+    if (cfg.aktif && !cleanUrl) {
+      showToast('Yayını açmak için bir yayın bağlantısı girin.', true);
+      return false;
+    }
+    try {
+      await setDoc(doc(db, 'ayarlar', 'canli_yayin'), {
+        aktif: cfg.aktif,
+        baslik: cfg.baslik.trim(),
+        aciklama: cfg.aciklama.trim(),
+        url: cleanUrl || '',
+        guncelleyenUid: user?.uid || '',
+        updatedAt: serverTimestamp()
+      });
+      showToast(cfg.aktif ? '📺 Canlı yayın başlatıldı.' : 'Canlı yayın kapatıldı.');
+      return true;
+    } catch (err: any) {
+      showToast('Kaydedilemedi: ' + (err?.code === 'permission-denied' ? 'yetkiniz yok (Firestore kuralları yayınlandı mı?)' : (err?.message || 'bilinmeyen hata')), true);
+      return false;
+    }
   };
 
   // Rol Önizleme: yalnızca gerçek yönetici kullanabilir; sadece ekrandaki görünümü değiştirir, hiçbir şey kaydedilmez.
@@ -2954,14 +3065,26 @@ export default function App() {
           setAuthError('Şifreniz en az 6 karakter olmalıdır.');
           return;
         }
-        if (authRole === 'esnaf' && !authIsyeri.trim()) {
-          setAuthError('Lütfen dükkan, işletme veya meslek ünvanınızı belirtiniz.');
+        if (authRole !== 'sakin' && !authIsyeri.trim()) {
+          setAuthError(authRole === 'usta' ? 'Lütfen usta / firma adınızı yazınız.' : 'Lütfen dükkan veya işletme ünvanınızı yazınız.');
           return;
+        }
+        if (authRole !== 'sakin' && authEsnafKategori === DIGER_ALAN) {
+          if (authRole === 'usta') {
+            const chk = cleanAreaName(authCustomArea);
+            if (!chk.ok) {
+              setAuthError(chk.error);
+              return;
+            }
+          } else if (authCustomArea.trim().length < 3) {
+            setAuthError('Lütfen işletme türünüzü yazınız (en az 3 harf).');
+            return;
+          }
         }
 
         const emailClean = authEmail.trim().toLowerCase();
         // Yönetici yetkisi yalnızca e-posta doğrulandıktan sonra (girişte) verilir; kayıt her zaman normal rolle başlar.
-        const finalRole: UserRole = authRole;
+        const finalRole = (authRole === 'sakin' ? 'sakin' : 'esnaf') as UserRole;
 
         let userUid = '';
         suppressAutoProfileRef.current = true;
@@ -2970,16 +3093,23 @@ export default function App() {
           userUid = cred.user.uid;
           try { await updateProfile(cred.user, { displayName: authName.trim() }); } catch (_) {}
 
+          let areaName: string | undefined;
+          if (authRole !== 'sakin') {
+            const fallbackName = authEsnafKategori === DIGER_ALAN ? authCustomArea.trim() : authEsnafKategori;
+            areaName = (await resolveAreaChoice(authRole, authEsnafKategori, authCustomArea)) || fallbackName;
+          }
+
           const newProfile: UserProfile = {
             uid: userUid,
             name: authName.trim(),
             email: emailClean,
             telefon: authPhone.trim(),
             role: finalRole,
-            credits: finalRole === 'esnaf' ? 10 : 0,
-            welcomeBonusGiven: finalRole === 'esnaf' ? true : undefined,
-            isyeri: finalRole === 'esnaf' ? authIsyeri.trim() : undefined,
-            esnafKategori: finalRole === 'esnaf' ? authEsnafKategori : undefined,
+            hesapTipi: authRole === 'usta' ? 'usta' : authRole === 'esnaf' ? 'esnaf' : undefined,
+            credits: authRole === 'usta' ? 10 : 0,
+            welcomeBonusGiven: authRole === 'usta' ? true : undefined,
+            isyeri: authRole !== 'sakin' ? authIsyeri.trim() : undefined,
+            esnafKategori: authRole !== 'sakin' ? areaName : undefined,
             isApproved: true,
             createdAt: new Date()
           };
@@ -2996,8 +3126,10 @@ export default function App() {
 
         if (finalRole === 'admin') {
           showToast(`Süper Yönetici hesabı başarıyla aktifleşti! Hoş geldiniz Yakup Bey 👑`);
-        } else if (finalRole === 'esnaf') {
-          showToast(`Kayıt tamamlandı! Sayın esnafımız, 10 teklif kredisi hesabınıza yüklendi 🛠️🎁`);
+        } else if (authRole === 'usta') {
+          showToast(`Kayıt tamamlandı! Sayın ustamız, 10 teklif kredisi hesabınıza yüklendi 🛠️🎁`);
+        } else if (authRole === 'esnaf') {
+          showToast(`Kayıt tamamlandı! Esnaf hesabınız açıldı, kampanyalarınızı yayınlayabilirsiniz 🏪`);
         } else {
           showToast(`Kayıt tamamlandı! Mutlular mahallemize hoş geldiniz komşum 🏡🎉`);
         }
@@ -3033,17 +3165,24 @@ export default function App() {
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
         const isAdminEmail = u.email === 'yakupkrbck@gmail.com' && u.emailVerified;
-        const newRole: UserRole = isAdminEmail ? 'admin' : authRole;
+        const wantsBiz = !isAdminEmail && authRole !== 'sakin';
+        const newRole: UserRole = isAdminEmail ? 'admin' : (authRole === 'sakin' ? 'sakin' : 'esnaf');
+        let googleArea: string | undefined;
+        if (wantsBiz) {
+          const fallbackName = authEsnafKategori === DIGER_ALAN ? authCustomArea.trim() : authEsnafKategori;
+          googleArea = (await resolveAreaChoice(authRole as 'usta' | 'esnaf', authEsnafKategori, authCustomArea)) || fallbackName;
+        }
         const newProfile: UserProfile = {
           uid: u.uid,
           name: u.displayName || 'Mahalle Sakini',
           email: u.email || '',
           telefon: authPhone.trim() || '',
           role: newRole,
-          credits: isAdminEmail ? 9999 : (newRole === 'esnaf' ? 10 : 0),
-          welcomeBonusGiven: (!isAdminEmail && newRole === 'esnaf') ? true : undefined,
-          isyeri: newRole === 'esnaf' ? (authIsyeri.trim() || u.displayName || '') : undefined,
-          esnafKategori: newRole === 'esnaf' ? authEsnafKategori : undefined,
+          hesapTipi: wantsBiz ? (authRole as 'usta' | 'esnaf') : undefined,
+          credits: isAdminEmail ? 9999 : (wantsBiz && authRole === 'usta' ? 10 : 0),
+          welcomeBonusGiven: (wantsBiz && authRole === 'usta') ? true : undefined,
+          isyeri: wantsBiz ? (authIsyeri.trim() || u.displayName || '') : undefined,
+          esnafKategori: wantsBiz ? googleArea : undefined,
           isApproved: true,
           createdAt: new Date(),
         };
@@ -3178,23 +3317,28 @@ export default function App() {
     setEditPhotoURL(profile.photoURL || user?.photoURL || '');
     setEditRole(profile.role === 'admin' || profile.role === 'editor' ? 'sakin' : (profile.role === 'esnaf' ? 'esnaf' : 'sakin'));
     setEditIsyeri(profile.isyeri || '');
-    setEditEsnafKategori(profile.esnafKategori || 'Tesisat & Su');
+    setEditEsnafKategori(profile.esnafKategori || (profile.hesapTipi === 'esnaf' ? ESNAF_TURLERI[0] : ALL_SERVICE_CATEGORIES[0].name));
     setEditAdres(profile.adres || 'Mutlular Mahallesi, Yıldırım / Bursa');
     setEditCalismaSaatleri(profile.calismaSaatleri || 'Pazartesi - Cumartesi: 08:30 - 19:30');
-    setEditVergiLevhasiFoto(profile.vergiLevhasiFoto || 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80');
+    const kindNow: 'usta' | 'esnaf' = profile.hesapTipi || (isUstaProfile(profile) ? 'usta' : 'esnaf');
+    setEditHesapTipi(kindNow);
+    setEditCustomArea('');
     setEditUzmanlikEtiketleri(profile.uzmanlikEtiketleri && profile.uzmanlikEtiketleri.length > 0 ? profile.uzmanlikEtiketleri : ['Garantili İşçilik', '7/24 Acil Usta', 'Hızlı Servis']);
     setEditEsnafAciklama(profile.esnafAciklama || 'Mutlular Mahallesi sakinlerine profesyonel ve garantili usta hizmeti sunmaktayız.');
     setProfileModalTab('bilgiler');
     setShowProfileEditModal(true);
   };
 
-  const handleOpenArtisanOnboarding = () => {
+  const handleOpenArtisanOnboarding = (kind?: 'usta' | 'esnaf') => {
+    const nextKind: 'usta' | 'esnaf' = kind || (profile?.hesapTipi === 'esnaf' ? 'esnaf' : 'usta');
+    setArtisanKind(nextKind);
+    setArtisanCustomArea('');
+    const defaultArea = nextKind === 'usta' ? ALL_SERVICE_CATEGORIES[0].name : ESNAF_TURLERI[0];
     if (profile) {
-      setArtisanBusinessName(profile.isyeri || (profile.name ? `${profile.name} Usta & Hizmet` : ''));
-      setArtisanCategory(profile.esnafKategori || 'Tesisat & Su');
+      setArtisanBusinessName(profile.isyeri || (profile.name ? `${profile.name} ${nextKind === 'usta' ? 'Usta' : 'Esnaf'}` : ''));
+      setArtisanCategory(profile.esnafKategori && (profile.hesapTipi ? profile.hesapTipi === nextKind : true) ? profile.esnafKategori : defaultArea);
       setArtisanAddress(profile.adres || 'Mutlular Mahallesi, Yıldırım / Bursa');
       setArtisanWorkingHours(profile.calismaSaatleri || 'Pazartesi - Cumartesi: 08:30 - 19:30');
-      setArtisanTaxPlatePhoto(profile.vergiLevhasiFoto || 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80');
       setArtisanTags(profile.uzmanlikEtiketleri && profile.uzmanlikEtiketleri.length > 0
         ? profile.uzmanlikEtiketleri
         : ['Garantili İşçilik', '7/24 Acil Usta', 'Hızlı Servis']);
@@ -3202,13 +3346,12 @@ export default function App() {
       setArtisanDescription(profile.esnafAciklama || 'Mutlular Mahallesi sakinlerine profesyonel, güvenilir ve garantili hizmet sunmaktayız.');
     } else {
       setArtisanBusinessName('');
-      setArtisanCategory('Tesisat & Su');
+      setArtisanCategory(defaultArea);
       setArtisanAddress('Mutlular Mahallesi, Yıldırım / Bursa');
       setArtisanWorkingHours('Pazartesi - Cumartesi: 08:30 - 19:30');
-      setArtisanTaxPlatePhoto('https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80');
       setArtisanTags(['Garantili İşçilik', '7/24 Acil Usta', 'Hızlı Servis']);
       setArtisanPhone('');
-      setArtisanDescription('Mutlular Mahallesi sakinlerine profesyonel, güvenilir ve garantili usta hizmeti sunmaktayız.');
+      setArtisanDescription('Mutlular Mahallesi sakinlerine profesyonel, güvenilir ve garantili hizmet sunmaktayız.');
       setArtisanRegisterEmail('');
       setArtisanRegisterPassword('');
       setArtisanRegisterName('');
@@ -3233,58 +3376,80 @@ export default function App() {
 
   const handleSubmitArtisanOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isUsta = artisanKind === 'usta';
     if (!artisanBusinessName.trim()) {
-      showToast('Lütfen işletme veya dükkan adınızı giriniz.', true);
+      showToast(isUsta ? 'Lütfen usta / firma adınızı giriniz.' : 'Lütfen işletme veya dükkan ünvanınızı giriniz.', true);
       return;
     }
     if (!artisanAddress.trim()) {
-      showToast('Lütfen işletme adresinizi giriniz.', true);
+      showToast(isUsta ? 'Lütfen çalışma bölgenizi / adresinizi giriniz.' : 'Lütfen işletme adresinizi giriniz.', true);
       return;
     }
+    if (artisanCategory === DIGER_ALAN) {
+      if (isUsta) {
+        const chk = cleanAreaName(artisanCustomArea);
+        if (!chk.ok) {
+          showToast(chk.error, true);
+          return;
+        }
+      } else if (artisanCustomArea.trim().length < 3) {
+        showToast('Lütfen işletme türünüzü yazınız (en az 3 harf).', true);
+        return;
+      }
+    }
+    const hesapTipi: 'usta' | 'esnaf' = artisanKind;
     setArtisanIsSubmitting(true);
     try {
       if (user && profile) {
-        // Mevcut kullanıcıyı doğrudan esnaf hesabına yükselt
+        // Mevcut kullanıcıyı usta veya esnaf hesabına yükselt
+        const areaName = (await resolveAreaChoice(hesapTipi, artisanCategory, artisanCustomArea))
+          || (artisanCategory === DIGER_ALAN ? artisanCustomArea.trim() : artisanCategory);
         const userRef = doc(db, 'users', user.uid);
-        // Hoş geldin kredisi (10) yalnızca bir kez verilir; zaten esnaf olan veya bonusu almış hesaba tekrar eklenmez.
-        const alreadyGotBonus = profile.role === 'esnaf' || (profile as any).welcomeBonusGiven === true;
-        const updatedCredits = alreadyGotBonus ? (profile.credits || 0) : Math.max(10, profile.credits || 0);
+        // Hoş geldin kredisi (10) yalnızca ustalara ve yalnızca bir kez verilir.
+        const alreadyGotBonus = (profile as any).welcomeBonusGiven === true || (profile.role === 'esnaf' && isUstaProfile(profile));
+        const updatedCredits = isUsta
+          ? (alreadyGotBonus ? (profile.credits || 0) : Math.max(10, profile.credits || 0))
+          : (profile.credits || 0);
+        const grantBonus = isUsta && !alreadyGotBonus;
         const updatedProfile: UserProfile = {
           ...profile,
           role: 'esnaf',
+          hesapTipi,
           isyeri: artisanBusinessName.trim(),
-          esnafKategori: artisanCategory,
+          esnafKategori: areaName,
           adres: artisanAddress.trim(),
           calismaSaatleri: artisanWorkingHours.trim() || 'Pazartesi - Cumartesi: 08:30 - 19:30',
-          vergiLevhasiFoto: artisanTaxPlatePhoto.trim() || undefined,
-          uzmanlikEtiketleri: artisanTags,
+          uzmanlikEtiketleri: isUsta ? artisanTags : [],
           esnafAciklama: artisanDescription.trim(),
           telefon: artisanPhone.trim() || profile.telefon,
           credits: updatedCredits,
           isApproved: true,
         };
 
-        await updateDoc(userRef, {
+        const payload: Record<string, any> = {
           role: 'esnaf',
+          hesapTipi,
           isyeri: updatedProfile.isyeri,
           esnafKategori: updatedProfile.esnafKategori,
           adres: updatedProfile.adres,
           calismaSaatleri: updatedProfile.calismaSaatleri,
-          vergiLevhasiFoto: updatedProfile.vergiLevhasiFoto || '',
           uzmanlikEtiketleri: updatedProfile.uzmanlikEtiketleri || [],
           esnafAciklama: updatedProfile.esnafAciklama || '',
           telefon: updatedProfile.telefon || '',
           credits: updatedCredits,
-          welcomeBonusGiven: true,
           isApproved: true,
-        });
+        };
+        if (grantBonus) payload.welcomeBonusGiven = true;
+        await updateDoc(userRef, payload);
 
         setProfile(updatedProfile);
         setDemoRole('esnaf');
         setShowArtisanRegisterModal(false);
-        showToast('🎉 Tebrikler! Hesabınız başarıyla Esnaf & Usta hesabına yükseltildi. 10 başlangıç teklif krediniz cüzdanınıza tanımlandı!');
+        showToast(isUsta
+          ? (grantBonus ? '🎉 Usta hesabınız açıldı! 10 başlangıç teklif krediniz cüzdanınıza tanımlandı.' : '✅ Usta bilgileriniz güncellendi.')
+          : '🎉 Esnaf hesabınız açıldı! Kampanyalarınızı yayınlayabilirsiniz.');
       } else {
-        // Misafir kullanıcı için doğrudan esnaf hesabı aç
+        // Misafir kullanıcı için doğrudan hesap aç
         if (!artisanRegisterEmail || !artisanRegisterPassword) {
           showToast('Lütfen e-posta ve şifrenizi giriniz.', true);
           setArtisanIsSubmitting(false);
@@ -3303,21 +3468,24 @@ export default function App() {
           const cred = await createUserWithEmailAndPassword(auth, emailClean, artisanRegisterPassword);
           userUid = cred.user.uid;
 
+          const areaName = (await resolveAreaChoice(hesapTipi, artisanCategory, artisanCustomArea))
+            || (artisanCategory === DIGER_ALAN ? artisanCustomArea.trim() : artisanCategory);
+
           const newProfile: UserProfile = {
             uid: userUid,
-            name: artisanRegisterName.trim() || artisanBusinessName.trim() || 'Esnaf Komşumuz',
+            name: artisanRegisterName.trim() || artisanBusinessName.trim() || (isUsta ? 'Usta Komşumuz' : 'Esnaf Komşumuz'),
             email: emailClean,
             role: 'esnaf',
+            hesapTipi,
             telefon: artisanPhone.trim(),
             isyeri: artisanBusinessName.trim(),
-            esnafKategori: artisanCategory,
+            esnafKategori: areaName,
             adres: artisanAddress.trim(),
             calismaSaatleri: artisanWorkingHours.trim() || 'Pazartesi - Cumartesi: 08:30 - 19:30',
-            vergiLevhasiFoto: artisanTaxPlatePhoto.trim() || undefined,
-            uzmanlikEtiketleri: artisanTags,
+            uzmanlikEtiketleri: isUsta ? artisanTags : [],
             esnafAciklama: artisanDescription.trim(),
-            credits: 10,
-            welcomeBonusGiven: true,
+            credits: isUsta ? 10 : 0,
+            welcomeBonusGiven: isUsta ? true : undefined,
             isApproved: true,
             createdAt: new Date(),
           };
@@ -3330,7 +3498,9 @@ export default function App() {
           suppressAutoProfileRef.current = false;
         }
         setShowArtisanRegisterModal(false);
-        showToast('🎉 Tebrikler! Esnaf & Usta hesabınız başarıyla oluşturuldu ve 10 teklif kredisi yüklendi!');
+        showToast(isUsta
+          ? '🎉 Usta hesabınız oluşturuldu ve 10 teklif kredisi yüklendi!'
+          : '🎉 Esnaf hesabınız oluşturuldu!');
       }
     } catch (e: any) {
       if (e.code === 'auth/operation-not-allowed') {
@@ -3370,7 +3540,7 @@ export default function App() {
       adres: armutAddress,
       telefon: armutPhone,
       urgent: armutTiming.toLowerCase().includes('hemen') || armutTiming.toLowerCase().includes('acil'),
-      fotolar: ['https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80']
+      fotolar: armutPhoto ? [armutPhoto] : []
     });
     if (!newId) return;
     setShowArmutWizard(false);
@@ -3388,6 +3558,23 @@ export default function App() {
         return;
       }
       const savedRole: UserRole = (realRole === 'admin' || realRole === 'editor') ? realRole : editRole;
+      if (editRole === 'esnaf' && editEsnafKategori === DIGER_ALAN) {
+        if (editHesapTipi === 'usta') {
+          const chk = cleanAreaName(editCustomArea);
+          if (!chk.ok) {
+            showToast(chk.error, true);
+            return;
+          }
+        } else if (editCustomArea.trim().length < 3) {
+          showToast('Lütfen işletme türünüzü yazınız (en az 3 harf).', true);
+          return;
+        }
+      }
+      let resolvedArea: string | undefined;
+      if (editRole === 'esnaf') {
+        resolvedArea = (await resolveAreaChoice(editHesapTipi, editEsnafKategori, editCustomArea))
+          || (editEsnafKategori === DIGER_ALAN ? editCustomArea.trim() : editEsnafKategori);
+      }
       const updated: UserProfile = {
         ...profile,
         name: editName.trim() || profile.name,
@@ -3395,11 +3582,11 @@ export default function App() {
         photoURL: editPhotoURL.trim() || profile.photoURL,
         role: savedRole,
         isyeri: editRole === 'esnaf' ? (editIsyeri.trim() || profile.isyeri || editName) : undefined,
-        esnafKategori: editRole === 'esnaf' ? (editEsnafKategori || profile.esnafKategori) : undefined,
+        hesapTipi: editRole === 'esnaf' ? editHesapTipi : undefined,
+        esnafKategori: editRole === 'esnaf' ? (resolvedArea || profile.esnafKategori) : undefined,
         adres: editRole === 'esnaf' ? (editAdres.trim() || profile.adres) : profile.adres,
         calismaSaatleri: editRole === 'esnaf' ? (editCalismaSaatleri.trim() || profile.calismaSaatleri) : profile.calismaSaatleri,
-        vergiLevhasiFoto: editRole === 'esnaf' ? (editVergiLevhasiFoto.trim() || profile.vergiLevhasiFoto) : profile.vergiLevhasiFoto,
-        uzmanlikEtiketleri: editRole === 'esnaf' ? editUzmanlikEtiketleri : profile.uzmanlikEtiketleri,
+        uzmanlikEtiketleri: editRole === 'esnaf' ? (editHesapTipi === 'usta' ? editUzmanlikEtiketleri : []) : profile.uzmanlikEtiketleri,
         esnafAciklama: editRole === 'esnaf' ? (editEsnafAciklama.trim() || profile.esnafAciklama) : profile.esnafAciklama,
       };
 
@@ -3410,10 +3597,10 @@ export default function App() {
           photoURL: updated.photoURL || '',
           role: updated.role,
           isyeri: updated.isyeri || '',
+          hesapTipi: updated.hesapTipi || '',
           esnafKategori: updated.esnafKategori || '',
           adres: updated.adres || '',
           calismaSaatleri: updated.calismaSaatleri || '',
-          vergiLevhasiFoto: updated.vergiLevhasiFoto || '',
           uzmanlikEtiketleri: updated.uzmanlikEtiketleri || [],
           esnafAciklama: updated.esnafAciklama || '',
         });
@@ -3444,10 +3631,14 @@ export default function App() {
         showToast('Bu talebe zaten teklif verdiniz.', true);
         return;
       }
-      if (profile?.role === 'esnaf' && !requestMatchesEsnaf(targetReq, profile, MAIN_SERVICE_CATEGORIES)) {
+      if (profile?.role === 'esnaf' && !requestMatchesEsnaf(targetReq, profile, ALL_SERVICE_CATEGORIES)) {
         showToast('Bu talep hizmet kategoriniz dışında.', true);
         return;
       }
+    }
+    if (profile && profile.role === 'esnaf' && !isUstaProfile(profile)) {
+      showToast('Teklif vermek için usta hesabı gerekir. Profilinizden hesap türünü Usta olarak değiştirebilirsiniz.', true);
+      return;
     }
     if (!Number.isFinite(price) || price <= 0) {
       showToast('Lütfen geçerli bir teklif fiyatı girin.', true);
@@ -3554,16 +3745,11 @@ export default function App() {
       return;
     }
 
-    const defaultImages: Record<string, string> = {
-      'Fırın & Unlu Mamül': 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&auto=format&fit=crop&q=80',
-      'Kasap & Et Ürünleri': 'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80',
-      'Manav & Organik': 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=600&auto=format&fit=crop&q=80',
-      'Oto Bakım & Hizmet': 'https://images.unsplash.com/photo-1520340356584-f9917d1eea6f?w=600&auto=format&fit=crop&q=80',
-      'Çiçek & Bahçe': 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=600&auto=format&fit=crop&q=80',
-      'Kişisel Bakım & Kuaför': 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&auto=format&fit=crop&q=80',
-    };
-
-    const finalPhoto = campFoto.trim() || defaultImages[campKategori] || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop&q=80';
+    if (!campFoto.trim()) {
+      showToast('Lütfen kampanya için bir fotoğraf yükleyin.', true);
+      return;
+    }
+    const finalPhoto = campFoto.trim();
 
     const newCamp: EsnafCampaign = {
       id: 'camp_' + Date.now(),
@@ -3989,6 +4175,68 @@ export default function App() {
     };
   };
 
+  // "Diğer" seçildiğinde kullanıcının yazdığı alanı çözer. Usta: sisteme faaliyet alanı olarak eklenir. Esnaf: yalnızca işletme türü metni.
+  const resolveAreaChoice = async (kind: 'usta' | 'esnaf', value: string, custom: string): Promise<string | null> => {
+    if (value !== DIGER_ALAN) return value;
+    if (kind === 'usta') return await addCustomArea(custom);
+    const c = (custom || '').replace(/\s+/g, ' ').trim();
+    if (c.length < 3) {
+      showToast('Lütfen işletme türünüzü yazın (en az 3 harf).', true);
+      return null;
+    }
+    return c.slice(0, 40);
+  };
+
+  // Usta için hizmet alanı, esnaf için işletme türü seçimi (+ "Diğer" ile kendi alanını yazma)
+  const renderAreaSelect = (
+    kind: 'usta' | 'esnaf',
+    value: string,
+    onChange: (v: string) => void,
+    custom: string,
+    onCustom: (v: string) => void
+  ) => {
+    const options: string[] = kind === 'esnaf' ? ESNAF_TURLERI : ALL_SERVICE_CATEGORIES.map((c: any) => c.name as string);
+    const legacy = value && value !== DIGER_ALAN && !options.includes(value) ? value : '';
+    const cls = 'w-full text-xs p-2.5 bg-white border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500 font-semibold';
+    return (
+      <div className="space-y-2">
+        <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>
+          {legacy && <option value={legacy}>{legacy}</option>}
+          {options.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+          <option value={DIGER_ALAN}>➕ Diğer (kendi alanımı yazacağım)</option>
+        </select>
+        {value === DIGER_ALAN && (
+          <div className="space-y-1">
+            <input
+              type="text"
+              value={custom}
+              maxLength={40}
+              onChange={(e) => onCustom(e.target.value)}
+              placeholder={kind === 'esnaf' ? 'Örn: Bisiklet Tamir Dükkanı' : 'Örn: Klima Servisi'}
+              className="w-full text-xs p-2.5 bg-white border border-amber-300 rounded-xl focus:outline-none focus:border-amber-500 font-semibold"
+            />
+            <p className="text-[10px] text-amber-900/80 leading-snug">
+              {kind === 'esnaf'
+                ? 'İşletme türünüz profilinizde görünür.'
+                : 'Yazdığınız faaliyet alanı sisteme eklenir: komşular bu alanda talep açabilir, siz de teklif verebilirsiniz.'}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Üst şeritte yalnızca son 7 günün ilanları döner; "Tümü" listesinde hepsi görünür.
+  const activeDeceased = deceasedList.filter((d: any) => {
+    const ms = toMillis(d.createdAt);
+    return !ms || Date.now() - ms < 7 * 24 * 3600 * 1000;
+  });
+  const dIdx = activeDeceased.length ? currentDeceasedIdx % activeDeceased.length : 0;
+  const shownDeceased: any = activeDeceased[dIdx];
+  const liveEmbedUrl = liveConfig.aktif && liveConfig.url ? toEmbedUrl(liveConfig.url) : null;
+
   const headerBrand = getHeaderBrand();
 
   const adminContentSections = [
@@ -3999,6 +4247,7 @@ export default function App() {
     { col: 'mahalle_davetleri', label: 'Davetiyeler', emoji: '💍', items: invitationItems.map((d: any) => ({ id: d.id || '', title: d.baslik || '(başlıksız)', sub: [d.tur, d.davetSahipleri].filter(Boolean).join(' • ') })) },
     { col: 'esnaf_kampanyalar', label: 'Esnaf Kampanyaları', emoji: '🏪', items: campaigns.map((c: any) => ({ id: c.id || '', title: c.baslik || '(başlıksız)', sub: [c.isyeriAdi, c.kategori].filter(Boolean).join(' • ') })) },
     { col: 'mahalle_kursusu', label: 'Mahalle Kürsüsü', emoji: '🎤', items: kursuItems.map((k: any) => ({ id: k.id || '', title: k.baslik || '(başlıksız)', sub: [k.kategori, k.authorName].filter(Boolean).join(' • ') })) },
+    { col: 'hizmet_alanlari', label: 'Faaliyet Alanları', emoji: '🧰', items: customAreas.map((a: any) => ({ id: a.id || '', title: a.ad || '(adsız)', sub: 'Usta tarafından eklendi' })) },
     { col: 'cenaze_ilanlari', label: 'Vefat İlanları', emoji: '🕊️', items: deceasedList.map((d: any) => ({ id: d.id || '', title: d.fullName || '(isimsiz)', sub: [d.dateStr, d.mosque].filter(Boolean).join(' • ') })) }
   ];
 
@@ -4008,7 +4257,6 @@ export default function App() {
       {/* ════════════════════════════════════════
            EN ÜSTTE TEK ŞERİT: CENAZE İLANLARI (VEFAT & TAZİYE)
       ════════════════════════════════════════ */}
-      {deceasedList.length > 0 && (
       <aside className="bg-slate-950 text-slate-100 border-b border-slate-800 text-xs py-2 px-3 sm:px-4 z-50">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-2.5">
           <div 
@@ -4021,30 +4269,34 @@ export default function App() {
               <span>Vefat &amp; Taziye</span>
             </span>
 
+            {shownDeceased ? (
             <div className="truncate text-slate-200 group-hover:text-amber-300 transition-colors text-[11px] sm:text-xs">
               <span className="font-black text-amber-400">
-                {deceasedList[currentDeceasedIdx]?.fullName || 'Merhum'} {deceasedList[currentDeceasedIdx]?.age ? `(${deceasedList[currentDeceasedIdx]?.age})` : ''}
+                {shownDeceased?.fullName || 'Merhum'} {shownDeceased?.age ? `(${shownDeceased?.age})` : ''}
               </span>
               <span className="text-slate-500 mx-1.5">•</span>
               <span className="text-slate-300">
-                Cenazesi {deceasedList[currentDeceasedIdx]?.dateStr?.toLowerCase() || 'bugün'} {deceasedList[currentDeceasedIdx]?.mosque}'nden {deceasedList[currentDeceasedIdx]?.prayerTime?.toLowerCase() || 'namazı müteakip'} kaldırılacaktır.
+                Cenazesi {shownDeceased?.dateStr?.toLowerCase() || 'bugün'} {shownDeceased?.mosque}'nden {shownDeceased?.prayerTime?.toLowerCase() || 'namazı müteakip'} kaldırılacaktır.
               </span>
-              {deceasedList[currentDeceasedIdx]?.family && (
+              {shownDeceased?.family && (
                 <span className="text-slate-400 hidden lg:inline ml-1.5">
-                  ({deceasedList[currentDeceasedIdx]?.family})
+                  ({shownDeceased?.family})
                 </span>
               )}
             </div>
+            ) : (
+              <div className="truncate text-slate-400 text-[11px] sm:text-xs">Şu an yayında vefat ilanı yok</div>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {deceasedList.length > 1 && (
+            {activeDeceased.length > 1 && (
               <div className="flex items-center text-slate-400">
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCurrentDeceasedIdx(prev => (prev > 0 ? prev - 1 : deceasedList.length - 1));
+                    setCurrentDeceasedIdx(prev => (prev > 0 ? prev - 1 : activeDeceased.length - 1));
                   }}
                   className="p-1 hover:text-white hover:bg-slate-800 rounded transition-colors"
                   title="Önceki Cenaze İlanı"
@@ -4052,13 +4304,13 @@ export default function App() {
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
                 <span className="text-[10px] font-mono px-1 select-none text-slate-400">
-                  {currentDeceasedIdx + 1}/{deceasedList.length}
+                  {dIdx + 1}/{activeDeceased.length}
                 </span>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCurrentDeceasedIdx(prev => (prev < deceasedList.length - 1 ? prev + 1 : 0));
+                    setCurrentDeceasedIdx(prev => (prev < activeDeceased.length - 1 ? prev + 1 : 0));
                   }}
                   className="p-1 hover:text-white hover:bg-slate-800 rounded transition-colors"
                   title="Sonraki Cenaze İlanı"
@@ -4079,16 +4331,16 @@ export default function App() {
             {/* EN ÜST SAĞ: CANLI YAYIN DÜĞMESİ */}
             <button
               onClick={() => setMutlularTvActive(true)}
-              className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] tracking-wide transition-all shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
+              className={`px-2.5 py-1 rounded-lg text-white font-black text-[10px] sm:text-[11px] tracking-wide transition-all shadow-sm flex items-center gap-1.5 cursor-pointer ${liveConfig.aktif ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-600'}`}
               title="Mutlular TV Canlı Yayını İzle"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-              <span>📺 Canlı Yayın</span>
+              {liveConfig.aktif && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />}
+              <span>{liveConfig.aktif ? '📺 Canlı Yayın' : '📺 Yayın'}</span>
             </button>
 
             <button
               onClick={() => setShowNewDeceasedModal(true)}
-              className="text-[10px] sm:text-[11px] font-bold text-slate-300 hover:text-white bg-white/10 hover:bg-white/15 px-2 py-1 rounded-lg transition-all hidden sm:inline-flex items-center gap-1"
+              className="text-[10px] sm:text-[11px] font-bold text-slate-300 hover:text-white bg-white/10 hover:bg-white/15 px-2 py-1 rounded-lg transition-all inline-flex items-center gap-1"
               title="Cenaze / Taziye İlanı Bırak"
             >
               <PlusCircle className="w-3 h-3" /> İlan Bırak
@@ -4096,7 +4348,6 @@ export default function App() {
           </div>
         </div>
       </aside>
-      )}
 
       {/* ── MUTLULAR HABER & HİZMET MODERN SABİT HEADER (SOL: ARAMA | ORTA: MUTLULAR HABER / HİZMET | SAĞ: PROFİL) ── */}
       <MutlularHeader
@@ -4108,6 +4359,7 @@ export default function App() {
         onOpenSearch={() => setShowSearchModal(true)}
         onOpenShare={() => setShowMutlularShareModal(true)}
         onOpenLiveTv={() => setMutlularTvActive(true)}
+        liveActive={liveConfig.aktif}
         onOpenProfile={() => {
           setActiveTab('profile');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -5819,7 +6071,7 @@ export default function App() {
           // Matching subcategories across all main categories
           const searchMatchingSubCategories: { mainCat: ServiceMainCategory; sub: ServiceSubCategory }[] = [];
           if (isSearching) {
-            MAIN_SERVICE_CATEGORIES.forEach(mainCat => {
+            ALL_SERVICE_CATEGORIES.forEach(mainCat => {
               mainCat.subCategories.forEach(sub => {
                 if (
                   mainCat.name.toLowerCase().includes(searchLower) ||
@@ -5860,17 +6112,17 @@ export default function App() {
             : serviceRequests;
 
           // Usta için "Bana uygun" filtresi: yalnızca kendi kategorisindeki, açık talepler
-          const isEsnafViewer = profile?.role === 'esnaf';
+          const isEsnafViewer = isUstaProfile(profile);
           const uygunRequests = serviceRequests.filter(r =>
             (!r.status || r.status === 'open') &&
             (!user || r.uid !== user.uid) &&
-            requestMatchesEsnaf(r, profile, MAIN_SERVICE_CATEGORIES)
+            requestMatchesEsnaf(r, profile, ALL_SERVICE_CATEGORIES)
           );
           const visibleRequests = (isEsnafViewer && requestScope === 'uygun') ? uygunRequests : searchMatchingRequests;
 
           // Drill-down selected category
           const activeExpandedCategory = activeExpandedCatId 
-            ? MAIN_SERVICE_CATEGORIES.find(c => c.id === activeExpandedCatId) 
+            ? ALL_SERVICE_CATEGORIES.find(c => c.id === activeExpandedCatId) 
             : null;
 
           return (
@@ -5919,7 +6171,7 @@ export default function App() {
                   <div className="flex flex-wrap sm:flex-nowrap gap-2.5 shrink-0">
                     <button
                       type="button"
-                      onClick={handleOpenArtisanOnboarding}
+                      onClick={() => handleOpenArtisanOnboarding()}
                       className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-black px-4 py-3 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer hover:scale-105 active:scale-95"
                     >
                       <Store className="w-4 h-4 text-amber-400" />
@@ -6126,7 +6378,7 @@ export default function App() {
                         Endişelenmeyin! Bu ihtiyaç için doğrudan genel talep açabilirsiniz; mahalle esnaf ve ustalarına bildirim gidecektir.
                       </p>
                       <button
-                        onClick={() => handleOpenCategoryRequest(MAIN_SERVICE_CATEGORIES[0].id, undefined, serviceSectorSearch)}
+                        onClick={() => handleOpenCategoryRequest(ALL_SERVICE_CATEGORIES[0].id, undefined, serviceSectorSearch)}
                         className="bg-rose-600 text-white font-black text-xs px-5 py-2.5 rounded-xl hover:bg-rose-700 transition-all cursor-pointer"
                       >
                         "{serviceSectorSearch}" İçin Talep Oluştur
@@ -6152,7 +6404,7 @@ export default function App() {
                       }`}
                     >
                       <span className="text-base">🏷️</span>
-                      <span>Hizmet Kategorileri ({MAIN_SERVICE_CATEGORIES.length})</span>
+                      <span>Hizmet Kategorileri ({ALL_SERVICE_CATEGORIES.length})</span>
                     </button>
 
                     <button
@@ -6200,7 +6452,7 @@ export default function App() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {MAIN_SERVICE_CATEGORIES.map((cat) => (
+                        {ALL_SERVICE_CATEGORIES.map((cat) => (
                           <div
                             key={cat.id}
                             className="bg-white rounded-3xl p-5 border border-slate-200/90 hover:border-rose-400 hover:shadow-lg transition-all flex flex-col justify-between group cursor-pointer"
@@ -6387,7 +6639,7 @@ export default function App() {
                       >
                         🌟 Tüm Ustalar ({VERIFIED_MASTERS.length})
                       </button>
-                      {MAIN_SERVICE_CATEGORIES.map(cat => {
+                      {ALL_SERVICE_CATEGORIES.map(cat => {
                         const count = VERIFIED_MASTERS.filter(m => m.mainCategoryId === cat.id).length;
                         if (count === 0) return null;
                         const isSelected = masterCategoryFilter === cat.id;
@@ -6641,9 +6893,9 @@ export default function App() {
                                   <Edit3 className="w-3.5 h-3.5 text-amber-600" /> Talebi Düzenle
                                 </button>
                               )}
-                              {demoRole === 'esnaf' && isActive && !isAuthor && req.status !== 'in_progress' &&
+                              {demoRole === 'esnaf' && (!profile || isUstaProfile(profile)) && isActive && !isAuthor && req.status !== 'in_progress' &&
                                 !(user && (offersMap[req.id || ''] || []).some(o => o.esnafUid === user.uid)) &&
-                                requestMatchesEsnaf(req, profile, MAIN_SERVICE_CATEGORIES) && (
+                                requestMatchesEsnaf(req, profile, ALL_SERVICE_CATEGORIES) && (
                                 <button
                                   onClick={() => setShowOfferModal(req)}
                                   className="bg-amber-500 hover:bg-amber-600 text-amber-950 font-black text-xs px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
@@ -6870,7 +7122,7 @@ export default function App() {
                         </div>
                         <button
                           type="button"
-                          onClick={handleOpenArtisanOnboarding}
+                          onClick={() => handleOpenArtisanOnboarding()}
                           className="text-[11px] font-bold text-amber-900 hover:text-black bg-white border border-amber-300 px-3 py-1 rounded-xl shadow-2xs transition-all cursor-pointer flex items-center gap-1"
                         >
                           <Edit3 className="w-3 h-3" /> Bilgileri Güncelle
@@ -6908,27 +7160,13 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Vergi Levhası / Ustalık Belgesi */}
-                        <div className="p-2.5 bg-white rounded-xl border border-amber-100 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <div>
-                              <span className="text-[10px] font-bold text-emerald-800 block uppercase">Belge / Vergi Levhası</span>
-                              <span className="font-bold text-emerald-700 text-xs">
-                                {profile?.vergiLevhasiFoto ? '✓ Belge Yüklendi (Onaylı)' : 'Standart Kayıt'}
-                              </span>
-                            </div>
+                        {/* Hesap türü */}
+                        <div className="p-2.5 bg-white rounded-xl border border-amber-100 flex items-center gap-2">
+                          <span className="text-lg shrink-0">{isUstaProfile(profile) ? '🛠️' : '🏪'}</span>
+                          <div>
+                            <span className="text-[10px] font-bold text-emerald-800 block uppercase">Hesap Türü</span>
+                            <span className="font-bold text-emerald-700 text-xs">{isUstaProfile(profile) ? 'Usta' : 'Esnaf'}</span>
                           </div>
-                          {profile?.vergiLevhasiFoto && (
-                            <a
-                              href={profile.vergiLevhasiFoto}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] font-bold text-blue-600 hover:underline shrink-0"
-                            >
-                              Görüntüle ↗
-                            </a>
-                          )}
                         </div>
                       </div>
 
@@ -6979,7 +7217,7 @@ export default function App() {
                       </div>
                       <button
                         type="button"
-                        onClick={handleOpenArtisanOnboarding}
+                        onClick={() => handleOpenArtisanOnboarding()}
                         className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs px-4 py-2.5 rounded-xl shadow-md transition-all shrink-0 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 self-start sm:self-auto"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
@@ -8636,7 +8874,7 @@ export default function App() {
                   authorRole: profile?.role || demoRole || 'sakin',
                   authorUid: user?.uid || 'user_demo',
                   sonDakika: isDirectPublish ? sonDakikaInput : false,
-                  imageURL: fotoInput || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1000&q=80",
+                  imageURL: fotoInput || "",
                   okunmaSayisi: 1,
                   begeniSayisi: 0,
                   tarihStr: 'Az önce'
@@ -8755,8 +8993,7 @@ export default function App() {
                 const aciklama = (form.elements.namedItem('aciklama') as HTMLTextAreaElement).value;
                 const iletisimKisi = (form.elements.namedItem('iletisimKisi') as HTMLInputElement).value;
                 const iletisimTelefon = (form.elements.namedItem('iletisimTelefon') as HTMLInputElement).value;
-                const davetiyeFoto = (form.elements.namedItem('davetiyeFoto') as HTMLInputElement).value || 
-                  'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80';
+                const davetiyeFoto = (form.elements.namedItem('davetiyeFoto') as HTMLInputElement).value || '';
 
                 const turEtiketiMap: Record<string, string> = {
                   dugun: '💍 Düğün & Nikah',
@@ -8876,7 +9113,7 @@ export default function App() {
 
               <div>
                 <label className="text-[11px] font-bold text-slate-600 block mb-1">Davetiye / Fotoğraf (Opsiyonel)</label>
-                <PhotoUploadField name="davetiyeFoto" defaultValue="https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80" folder="mutlular_haber/davetler" accentClass="bg-pink-600 hover:bg-pink-700 text-white" />
+                <PhotoUploadField name="davetiyeFoto" folder="mutlular_haber/davetler" accentClass="bg-pink-600 hover:bg-pink-700 text-white" />
               </div>
 
               <button
@@ -8968,7 +9205,7 @@ export default function App() {
                     metrekare,
                     kat,
                     isitma,
-                    fotolar: [fotoUrl || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80']
+                    fotolar: fotoUrl ? [fotoUrl] : []
                   };
                 } else {
                   const kategori = (form.elements.namedItem('kategori') as HTMLSelectElement).value;
@@ -8986,7 +9223,7 @@ export default function App() {
                     saticiTelefon,
                     status: 'active',
                     ilanTuru: 'ikinci_el',
-                    fotolar: [fotoUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80']
+                    fotolar: fotoUrl ? [fotoUrl] : []
                   };
                 }
 
@@ -9101,11 +9338,6 @@ export default function App() {
                 <PhotoUploadField
                   key={marketModalType}
                   name="fotoUrl"
-                  defaultValue={
-                    marketModalType === 'emlak'
-                      ? 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=800&q=80'
-                      : 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80'
-                  }
                   folder="mutlular_haber/ilanlar"
                   accentClass="bg-slate-900 hover:bg-slate-800 text-white"
                 />
@@ -9165,7 +9397,7 @@ export default function App() {
                   iletisimKisi: profile?.name || 'Komşu',
                   iletisimTelefon,
                   status: 'published',
-                  fotolar: ["https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=800&q=80"]
+                  fotolar: ((form.elements.namedItem('fotoUrl') as HTMLInputElement)?.value || '') ? [(form.elements.namedItem('fotoUrl') as HTMLInputElement).value] : []
                 };
 
                 setLostFoundItems([newItem, ...lostFoundItems]);
@@ -9215,6 +9447,11 @@ export default function App() {
               <div>
                 <label className="text-[11px] font-bold text-gray-500 block mb-1">Detaylı Açıklama</label>
                 <textarea required name="aciklama" rows={2} placeholder="Özellikler, tasma rengi, ayırt edici işaret..." className="w-full text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 resize-none" />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 block mb-1">Fotoğraf (Opsiyonel)</label>
+                <PhotoUploadField name="fotoUrl" folder="mutlular_haber/kayip" accentClass="bg-red-600 hover:bg-red-700 text-white" />
               </div>
 
               <div className="p-3 bg-red-50 rounded-xl border border-red-100 flex items-center gap-2">
@@ -9444,9 +9681,9 @@ export default function App() {
 
       {/* ── MODAL: YENİ HİZMET TALEBİ AÇ (TEKLİF AL) ── */}
       {showServiceModal && (() => {
-        const activeMainCat = MAIN_SERVICE_CATEGORIES.find(c => c.id === modalMainCatId) || 
-          MAIN_SERVICE_CATEGORIES.find(c => c.name === selectedServiceSector) || 
-          MAIN_SERVICE_CATEGORIES[0];
+        const activeMainCat = ALL_SERVICE_CATEGORIES.find(c => c.id === modalMainCatId) || 
+          ALL_SERVICE_CATEGORIES.find(c => c.name === selectedServiceSector) || 
+          ALL_SERVICE_CATEGORIES[0];
         
         const activeSubCat = activeMainCat.subCategories.find(s => s.name === modalSubCatName) || 
           activeMainCat.subCategories[0];
@@ -9484,11 +9721,7 @@ export default function App() {
                     adres: newServiceReqAddress,
                     telefon: newServiceReqPhone,
                     urgent: newServiceReqUrgent,
-                    fotolar: newServiceReqPhoto ? [newServiceReqPhoto] : [
-                      PHOTO_PRESETS.find(p => p.label.includes(activeSubCat?.name?.split(' ')[0] || ''))?.url ||
-                      PHOTO_PRESETS.find(p => p.label.includes(activeMainCat?.shortTitle?.split(' ')[0] || ''))?.url ||
-                      "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80"
-                    ]
+                    fotolar: newServiceReqPhoto ? [newServiceReqPhoto] : []
                   });
                   if (!newId) return;
 
@@ -9511,7 +9744,7 @@ export default function App() {
                     onChange={(e) => {
                       const newCatId = e.target.value;
                       setModalMainCatId(newCatId);
-                      const cat = MAIN_SERVICE_CATEGORIES.find(c => c.id === newCatId);
+                      const cat = ALL_SERVICE_CATEGORIES.find(c => c.id === newCatId);
                       if (cat) {
                         setSelectedServiceSector(cat.name);
                         if (cat.subCategories.length > 0) {
@@ -9521,7 +9754,7 @@ export default function App() {
                     }}
                     className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-500 font-semibold text-slate-800"
                   >
-                    {MAIN_SERVICE_CATEGORIES.map((cat) => (
+                    {ALL_SERVICE_CATEGORIES.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.icon} {cat.name} ({cat.subCategories.length} Alt Kategori)
                       </option>
@@ -9708,7 +9941,7 @@ export default function App() {
                     onChange={(e) => setEditReqKategori(e.target.value)}
                     className="w-full text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 font-medium"
                   >
-                    {MAIN_SERVICE_CATEGORIES.map((cat) => (
+                    {ALL_SERVICE_CATEGORIES.map((cat) => (
                       <option key={cat.id} value={cat.name}>
                         {cat.icon} {cat.name}
                       </option>
@@ -9778,7 +10011,7 @@ export default function App() {
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-400 italic py-1">
-                    Henüz fotoğraf eklenmemiş. Aşağıdan fotoğraf yükleyebilir veya hazır görsellerden seçebilirsiniz.
+                    Henüz fotoğraf eklenmemiş. Aşağıdan telefonunuzdan veya bilgisayarınızdan fotoğraf yükleyebilirsiniz.
                   </p>
                 )}
 
@@ -9791,23 +10024,6 @@ export default function App() {
                     buttonLabel="Fotoğraf Yükle"
                     accentClass="bg-amber-600 hover:bg-amber-700 text-white"
                   />
-                </div>
-
-                {/* Hızlı Örnek Görseller */}
-                <div className="space-y-1 pt-1.5 border-t border-slate-200/80">
-                  <span className="text-[10px] font-bold text-slate-500">Hızlı Örnek Görsel Ekle:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {PHOTO_PRESETS.map((preset, prIdx) => (
-                      <button
-                        key={prIdx}
-                        type="button"
-                        onClick={() => handleAddPhotoToEdit(preset.url)}
-                        className="text-[10px] font-semibold bg-white hover:bg-amber-50 hover:text-amber-800 border border-slate-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
-                      >
-                        + {preset.label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -9937,7 +10153,7 @@ export default function App() {
                   <label className="text-xs font-black text-gray-700 block">
                     1. Mahalledeki Rolünüzü Seçin:
                   </label>
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     {/* Sakin Seçeneği */}
                     <button
                       type="button"
@@ -9964,28 +10180,54 @@ export default function App() {
                       </div>
                     </button>
 
-                    {/* Esnaf Seçeneği */}
+                    {/* Usta Seçeneği */}
                     <button
                       type="button"
-                      onClick={() => setAuthRole('esnaf')}
+                      onClick={() => { setAuthRole('usta'); setAuthEsnafKategori(ALL_SERVICE_CATEGORIES[0].name); setAuthCustomArea(''); }}
                       className={`p-3 rounded-2xl border-2 text-left transition-all flex flex-col justify-between relative ${
-                        authRole === 'esnaf'
+                        authRole === 'usta'
                           ? 'border-amber-500 bg-amber-50/80 text-amber-950 shadow-sm ring-1 ring-amber-500'
                           : 'border-gray-200 bg-white hover:border-gray-300 text-gray-600'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-2xl">🏪</span>
-                        {authRole === 'esnaf' && (
+                        <span className="text-2xl">🛠️</span>
+                        {authRole === 'usta' && (
                           <span className="bg-amber-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                             <Check className="w-2.5 h-2.5" /> Seçildi
                           </span>
                         )}
                       </div>
                       <div>
-                        <span className="font-black text-xs block text-gray-900">Esnaf & Usta</span>
+                        <span className="font-black text-xs block text-gray-900">Usta</span>
                         <span className="text-[10px] text-gray-500 leading-tight block mt-0.5">
-                          Taleplere teklif ver, komşulara hizmet sağla, iş al
+                          Tesisat, elektrik, tadilat gibi hizmet ver; taleplere teklif sun
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Esnaf Seçeneği */}
+                    <button
+                      type="button"
+                      onClick={() => { setAuthRole('esnaf'); setAuthEsnafKategori(ESNAF_TURLERI[0]); setAuthCustomArea(''); }}
+                      className={`p-3 rounded-2xl border-2 text-left transition-all flex flex-col justify-between relative ${
+                        authRole === 'esnaf'
+                          ? 'border-emerald-500 bg-emerald-50/80 text-emerald-950 shadow-sm ring-1 ring-emerald-500'
+                          : 'border-gray-200 bg-white hover:border-gray-300 text-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-2xl">🏪</span>
+                        {authRole === 'esnaf' && (
+                          <span className="bg-emerald-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                            <Check className="w-2.5 h-2.5" /> Seçildi
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="font-black text-xs block text-gray-900">Esnaf</span>
+                        <span className="text-[10px] text-gray-500 leading-tight block mt-0.5">
+                          Dükkanın veya işletmen var; kampanya yayınla, mağaza sayfan olsun
                         </span>
                       </div>
                     </button>
@@ -10052,57 +10294,73 @@ export default function App() {
                 </div>
               )}
 
-              {/* ESNAF SEÇİLDİYSE: DÜKKAN / İŞLETME & UZMANLIK ALANI */}
-              {authMode === 'register' && authRole === 'esnaf' && (
+              {/* USTA SEÇİLDİYSE: HİZMET ALANI */}
+              {authMode === 'register' && authRole === 'usta' && (
                 <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-3">
                   <div className="flex items-center gap-1.5 text-xs font-black text-amber-900">
-                    <Building2 className="w-4 h-4 text-amber-600" />
-                    <span>Esnaf / İşyeri Detayları</span>
+                    <Wrench className="w-4 h-4 text-amber-600" />
+                    <span>Usta Bilgileri</span>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-bold text-amber-900 block mb-1">
-                      İşletme / Dükkan veya Usta Ünvanı <span className="text-red-500">*</span>
+                      Usta / Firma Adı <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
                       <Briefcase className="w-4 h-4 text-amber-500 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        required={authRole === 'esnaf'}
+                        required
                         value={authIsyeri}
                         onChange={(e) => setAuthIsyeri(e.target.value)}
-                        placeholder="Örn: Mutlular Sıhhi Tesisat veya Hasan Usta"
+                        placeholder="Örn: Hasan Usta Tesisat"
                         className="w-full text-xs pl-9 pr-3 py-2 bg-white border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-bold text-amber-900 block mb-1">
-                      Faaliyet / Hizmet Alanı
-                    </label>
-                    <select
-                      value={authEsnafKategori}
-                      onChange={(e) => setAuthEsnafKategori(e.target.value)}
-                      className="w-full text-xs p-2 bg-white border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500 font-medium"
-                    >
-                      <option value="Tesisat & Su">Tesisat &amp; Su</option>
-                      <option value="Elektrik & Aydınlatma">Elektrik &amp; Aydınlatma</option>
-                      <option value="Boya & Badana / Tadilat">Boya &amp; Badana / Tadilat</option>
-                      <option value="Tamirat & Mobilya Montaj">Tamirat &amp; Mobilya Montaj</option>
-                      <option value="Temizlik & İlaçlama">Temizlik &amp; İlaçlama</option>
-                      <option value="Bakkal, Market & Şarküteri">Bakkal, Market &amp; Şarküteri</option>
-                      <option value="Kuaför & Kişisel Bakım">Kuaför &amp; Kişisel Bakım</option>
-                      <option value="Çilingir & Anahtar">Çilingir &amp; Anahtar</option>
-                      <option value="Diğer Mahalle Hizmeti">Diğer Mahalle Hizmeti</option>
-                    </select>
+                    <label className="text-[11px] font-bold text-amber-900 block mb-1">Faaliyet / Hizmet Alanı <span className="text-red-500">*</span></label>
+                    {renderAreaSelect('usta', authEsnafKategori, setAuthEsnafKategori, authCustomArea, setAuthCustomArea)}
                   </div>
 
                   <div className="bg-amber-100/90 border border-amber-300 rounded-xl p-2.5 text-[11px] text-amber-950 flex items-start gap-2">
                     <span className="text-base shrink-0">🎁</span>
                     <span>
-                      <strong>Hoşgeldin Hediyesi:</strong> Mahalle esnafı kaydınızla birlikte hizmet taleplerine teklif verebilmeniz için <strong>10 Ücretsiz Teklif Kredisi</strong> hesabınıza tanımlanacaktır.
+                      <strong>Hoşgeldin Hediyesi:</strong> Alanınızdaki taleplere teklif verebilmeniz için <strong>10 Ücretsiz Teklif Kredisi</strong> hesabınıza tanımlanır.
                     </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ESNAF SEÇİLDİYSE: DÜKKAN / İŞLETME */}
+              {authMode === 'register' && authRole === 'esnaf' && (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
+                    <Building2 className="w-4 h-4 text-emerald-600" />
+                    <span>Esnaf / İşletme Bilgileri</span>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-emerald-900 block mb-1">
+                      İşletme / Dükkan Ünvanı <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Store className="w-4 h-4 text-emerald-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={authIsyeri}
+                        onChange={(e) => setAuthIsyeri(e.target.value)}
+                        placeholder="Örn: Mutlular Fırın & Pastane"
+                        className="w-full text-xs pl-9 pr-3 py-2 bg-white border border-emerald-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-emerald-900 block mb-1">İşletme Türü <span className="text-red-500">*</span></label>
+                    {renderAreaSelect('esnaf', authEsnafKategori, setAuthEsnafKategori, authCustomArea, setAuthCustomArea)}
                   </div>
                 </div>
               )}
@@ -10126,16 +10384,20 @@ export default function App() {
               <button
                 type="submit"
                 className={`w-full text-white font-black text-xs py-3 rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 ${
-                  authRole === 'esnaf' && authMode === 'register'
+                  authRole !== 'sakin' && authMode === 'register'
                     ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700'
                     : 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800'
                 }`}
               >
                 {authMode === 'login' ? (
                   'Giriş Yap'
+                ) : authRole === 'usta' ? (
+                  <>
+                    <Wrench className="w-4 h-4" /> Usta Olarak Kayıt Ol (10 Kredi Hediyeli)
+                  </>
                 ) : authRole === 'esnaf' ? (
                   <>
-                    <Building2 className="w-4 h-4" /> Esnaf Olarak Kayıt Ol (10 Kredi Hediyeli)
+                    <Building2 className="w-4 h-4" /> Esnaf Olarak Kayıt Ol
                   </>
                 ) : (
                   <>
@@ -10210,28 +10472,6 @@ export default function App() {
                 </div>
 
                 <PhotoUploadField value={editPhotoURL} onChange={setEditPhotoURL} round folder="mutlular_haber/avatars" buttonLabel="Profil Fotoğrafı Yükle" accentClass="bg-red-600 hover:bg-red-700 text-white" />
-
-                {/* Hızlı Hazır Avatarlar */}
-                <div className="flex items-center gap-2 pt-0.5">
-                  <span className="text-[10px] text-slate-400 font-bold shrink-0">Örnek:</span>
-                  <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-                    {[
-                      { label: '👨 Komşu', url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80' },
-                      { label: '👩 Sakin', url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80' },
-                      { label: '👴 Emekli', url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80' },
-                      { label: '🛠️ Usta', url: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=200&q=80' },
-                    ].map((av, avIdx) => (
-                      <button
-                        key={avIdx}
-                        type="button"
-                        onClick={() => setEditPhotoURL(av.url)}
-                        className="text-[10px] font-bold bg-white hover:bg-red-50 text-slate-700 hover:text-red-700 border border-slate-200 px-2 py-0.5 rounded-lg transition-all shrink-0 cursor-pointer"
-                      >
-                        {av.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               <div>
@@ -10265,21 +10505,34 @@ export default function App() {
               <div>
                 <label className="text-[11px] font-bold text-gray-600 block mb-1">Rol / Üyelik Türü</label>
                 <select
-                  value={editRole}
-                  onChange={(e) => setEditRole(e.target.value as 'sakin' | 'esnaf')}
+                  value={editRole === 'sakin' ? 'sakin' : editHesapTipi}
+                  onChange={(e) => {
+                    const v = e.target.value as 'sakin' | 'usta' | 'esnaf';
+                    if (v === 'sakin') {
+                      setEditRole('sakin');
+                    } else {
+                      setEditRole('esnaf');
+                      if (v !== editHesapTipi) {
+                        setEditHesapTipi(v);
+                        setEditEsnafKategori(v === 'usta' ? ALL_SERVICE_CATEGORIES[0].name : ESNAF_TURLERI[0]);
+                        setEditCustomArea('');
+                      }
+                    }
+                  }}
                   className="w-full text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 font-bold"
                 >
                   <option value="sakin">🏡 Mahalle Sakini</option>
-                  <option value="esnaf">🏪 Mahalle Esnafı &amp; Usta</option>
+                  <option value="usta">🛠️ Usta (hizmet veriyorum)</option>
+                  <option value="esnaf">🏪 Esnaf (dükkanım var)</option>
                 </select>
               </div>
 
               {editRole === 'esnaf' && (
                 <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-3">
-                  <span className="text-xs font-black text-amber-950 block">Esnaf &amp; Usta Profil Detayları</span>
+                  <span className="text-xs font-black text-amber-950 block">{editHesapTipi === 'usta' ? 'Usta Profil Detayları' : 'Esnaf Profil Detayları'}</span>
                   
                   <div>
-                    <label className="text-[11px] font-bold text-amber-900 block mb-1">İşletme / Dükkan Ünvanı</label>
+                    <label className="text-[11px] font-bold text-amber-900 block mb-1">{editHesapTipi === 'usta' ? 'Usta / Firma Adı' : 'İşletme / Dükkan Ünvanı'}</label>
                     <input
                       type="text"
                       value={editIsyeri}
@@ -10290,23 +10543,8 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-bold text-amber-900 block mb-1">Hizmet Kategorisi</label>
-                    <select
-                      value={editEsnafKategori}
-                      onChange={(e) => setEditEsnafKategori(e.target.value)}
-                      className="w-full text-xs p-2.5 bg-white border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500"
-                    >
-                      <option value="Tesisat &amp; Su">Tesisat &amp; Su</option>
-                      <option value="Elektrik &amp; Aydınlatma">Elektrik &amp; Aydınlatma</option>
-                      <option value="Boya &amp; Badana / Tadilat">Boya &amp; Badana / Tadilat</option>
-                      <option value="Tamirat &amp; Mobilya Montaj">Tamirat &amp; Mobilya Montaj</option>
-                      <option value="Düğün, Nişan &amp; Doğum Günü">Düğün, Nişan &amp; Doğum Günü</option>
-                      <option value="Temizlik &amp; İlaçlama">Temizlik &amp; İlaçlama</option>
-                      <option value="Bakkal, Market &amp; Şarküteri">Bakkal, Market &amp; Şarküteri</option>
-                      <option value="Kuaför &amp; Kişisel Bakım">Kuaför &amp; Kişisel Bakım</option>
-                      <option value="Çilingir &amp; Anahtar">Çilingir &amp; Anahtar</option>
-                      <option value="Diğer Mahalle Hizmeti">Diğer Mahalle Hizmeti</option>
-                    </select>
+                    <label className="text-[11px] font-bold text-amber-900 block mb-1">{editHesapTipi === 'usta' ? 'Faaliyet / Hizmet Alanı' : 'İşletme Türü'}</label>
+                    {renderAreaSelect(editHesapTipi, editEsnafKategori, setEditEsnafKategori, editCustomArea, setEditCustomArea)}
                   </div>
 
                   {/* İşletme Adresi */}
@@ -10339,13 +10577,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Vergi Levhası / Belge Fotoğrafı */}
-                  <div>
-                    <label className="text-[11px] font-bold text-amber-900 block mb-1">Vergi Levhası / Belge Fotoğrafı</label>
-                    <PhotoUploadField value={editVergiLevhasiFoto} onChange={setEditVergiLevhasiFoto} folder="mutlular_haber/belgeler" buttonLabel="Belge Fotoğrafı Yükle" accentClass="bg-amber-600 hover:bg-amber-700 text-white" />
-                  </div>
-
-                  {/* Uzmanlık Etiketleri */}
+                  {/* Uzmanlık Etiketleri (yalnızca usta) */}
+                  {editHesapTipi === 'usta' && (
                   <div>
                     <label className="text-[11px] font-bold text-amber-900 block mb-1">Uzmanlık Etiketleri</label>
                     <div className="flex flex-wrap gap-1.5 mb-2">
@@ -10384,6 +10617,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -10408,8 +10642,8 @@ export default function App() {
                   <Store className="w-6 h-6" />
                 </span>
                 <div>
-                  <h3 className="font-black text-lg text-slate-900">Usta &amp; Esnaf Olarak Katıl</h3>
-                  <p className="text-xs text-slate-500">Mutlular Mahallesi usta rehberine katılın, komşulardan teklif talebi alın.</p>
+                  <h3 className="font-black text-lg text-slate-900">{artisanKind === 'usta' ? 'Usta Olarak Katıl' : 'Esnaf Olarak Katıl'}</h3>
+                  <p className="text-xs text-slate-500">{artisanKind === 'usta' ? 'Faaliyet alanınızı seçin, komşuların taleplerine teklif verin.' : 'İşletmenizi mahalle esnaf rehberine ekleyin, kampanyalarınızı yayınlayın.'}</p>
                 </div>
               </div>
               <button
@@ -10421,6 +10655,33 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSubmitArtisanOnboarding} className="space-y-4">
+              {/* Usta / Esnaf ayrımı */}
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { k: 'usta', icon: '🛠️', title: 'Usta', sub: 'Hizmet veriyorum, teklif sunacağım' },
+                  { k: 'esnaf', icon: '🏪', title: 'Esnaf', sub: 'Dükkanım / işletmem var' }
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.k}
+                    type="button"
+                    onClick={() => {
+                      setArtisanKind(opt.k);
+                      setArtisanCategory(opt.k === 'usta' ? ALL_SERVICE_CATEGORIES[0].name : ESNAF_TURLERI[0]);
+                      setArtisanCustomArea('');
+                    }}
+                    className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                      artisanKind === opt.k
+                        ? 'border-amber-500 bg-amber-50 ring-1 ring-amber-500'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="text-xl block">{opt.icon}</span>
+                    <span className="font-black text-xs text-slate-900 block">{opt.title}</span>
+                    <span className="text-[10px] text-slate-500 leading-tight block">{opt.sub}</span>
+                  </button>
+                ))}
+              </div>
+
               {/* Giriş Durumu Bilgisi */}
               {user && profile ? (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-3">
@@ -10483,7 +10744,7 @@ export default function App() {
                 {/* Dükkan / İşletme Adı */}
                 <div className="sm:col-span-2">
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    İşletme / Dükkan Ünvanı <span className="text-red-500">*</span>
+                    {artisanKind === 'usta' ? 'Usta / Firma Adı' : 'İşletme / Dükkan Ünvanı'} <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -10495,27 +10756,12 @@ export default function App() {
                   />
                 </div>
 
-                {/* Hizmet Sektörü / Kategorisi */}
+                {/* Faaliyet alanı (usta) / İşletme türü (esnaf) */}
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    Hizmet Kategorisi <span className="text-red-500">*</span>
+                    {artisanKind === 'usta' ? 'Faaliyet / Hizmet Alanı' : 'İşletme Türü'} <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    value={artisanCategory}
-                    onChange={(e) => setArtisanCategory(e.target.value)}
-                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500 font-semibold"
-                  >
-                    <option value="Tesisat &amp; Su">Tesisat &amp; Su</option>
-                    <option value="Elektrik &amp; Aydınlatma">Elektrik &amp; Aydınlatma</option>
-                    <option value="Boya &amp; Badana / Tadilat">Boya &amp; Badana / Tadilat</option>
-                    <option value="Tamirat &amp; Mobilya Montaj">Tamirat &amp; Mobilya Montaj</option>
-                    <option value="Düğün, Nişan &amp; Doğum Günü">Düğün, Nişan &amp; Doğum Günü</option>
-                    <option value="Temizlik &amp; İlaçlama">Temizlik &amp; İlaçlama</option>
-                    <option value="Bakkal, Market &amp; Şarküteri">Bakkal, Market &amp; Şarküteri</option>
-                    <option value="Kuaför &amp; Kişisel Bakım">Kuaför &amp; Kişisel Bakım</option>
-                    <option value="Çilingir &amp; Anahtar">Çilingir &amp; Anahtar</option>
-                    <option value="Diğer Mahalle Hizmeti">Diğer Mahalle Hizmeti</option>
-                  </select>
+                  {renderAreaSelect(artisanKind, artisanCategory, setArtisanCategory, artisanCustomArea, setArtisanCustomArea)}
                 </div>
 
                 {/* Telefon & WhatsApp */}
@@ -10539,7 +10785,7 @@ export default function App() {
                 {/* İşletme Adresi */}
                 <div className="sm:col-span-2">
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    İşletme Adresi <span className="text-red-500">*</span>
+                    {artisanKind === 'usta' ? 'Çalışma Bölgesi / Adres' : 'İşletme Adresi'} <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -10589,57 +10835,8 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Vergi Levhası / Ustalık Belgesi (Fotoğraf) */}
-                <div className="sm:col-span-2 space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-2xl">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Vergi Levhası / Ustalık Belgesi (Fotoğraf)</span>
-                    </label>
-                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                      Güven Rozeti Kazandırır
-                    </span>
-                  </div>
-
-                  <PhotoUploadField value={artisanTaxPlatePhoto} onChange={setArtisanTaxPlatePhoto} folder="mutlular_haber/belgeler" buttonLabel="Belge Fotoğrafı Yükle" accentClass="bg-amber-600 hover:bg-amber-700 text-white" />
-
-                  {/* Hazır Örnek Belge Seçenekleri */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 shrink-0">Örnek:</span>
-                    <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-                      {[
-                        { label: '📜 Vergi Levhası', url: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80' },
-                        { label: '🛠️ Ustalık Belgesi', url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80' },
-                        { label: '🏪 Dükkan / Tabela', url: 'https://images.unsplash.com/photo-1520006403909-838d6b92c22e?auto=format&fit=crop&w=600&q=80' },
-                      ].map((preset, prIdx) => (
-                        <button
-                          key={prIdx}
-                          type="button"
-                          onClick={() => setArtisanTaxPlatePhoto(preset.url)}
-                          className="text-[10px] font-bold bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200 px-2 py-0.5 rounded-lg transition-all shrink-0 cursor-pointer"
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {artisanTaxPlatePhoto && (
-                    <div className="flex items-center gap-3 pt-1">
-                      <img
-                        src={artisanTaxPlatePhoto}
-                        alt="Belge Önizleme"
-                        className="w-16 h-12 object-cover rounded-lg border border-slate-200 shadow-2xs"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80';
-                        }}
-                      />
-                      <span className="text-[11px] text-slate-600 font-medium">Belge görseli hazırlandı. Profilde ve tekliflerinizde onay rozetiyle gösterilir.</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Uzmanlık Etiketleri */}
+                {/* Uzmanlık Etiketleri (yalnızca usta) */}
+                {artisanKind === 'usta' && (
                 <div className="sm:col-span-2 space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-2xl">
                   <label className="text-[11px] font-bold text-slate-800 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
@@ -10715,6 +10912,7 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+                )}
 
                 {/* İşletme Tanıtım Açıklaması */}
                 <div className="sm:col-span-2">
@@ -10738,9 +10936,11 @@ export default function App() {
                     🎁
                   </div>
                   <div>
-                    <h5 className="font-black text-xs sm:text-sm">10 Ücretsiz Teklif Kredisi Hediye!</h5>
+                    <h5 className="font-black text-xs sm:text-sm">{artisanKind === 'usta' ? '10 Ücretsiz Teklif Kredisi Hediye!' : 'Esnaf Hesabı Ücretsiz'}</h5>
                     <p className="text-[11px] text-amber-100 mt-0.5">
-                      Esnaf hesabınız açıldığında mahalle taleplerine anında teklif verebilmeniz için 10 kredi doğrudan cüzdanınıza tanımlanacaktır.
+                      {artisanKind === 'usta'
+                        ? 'Usta hesabınız açıldığında alanınızdaki taleplere teklif verebilmeniz için 10 kredi cüzdanınıza tanımlanır.'
+                        : 'Esnaf hesabınızla kampanyalarınızı yayınlayabilir ve mağaza sayfanızı yönetebilirsiniz.'}
                     </p>
                   </div>
                 </div>
@@ -11629,7 +11829,7 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto pr-1">
-                    {MAIN_SERVICE_CATEGORIES.map((cat) => {
+                    {ALL_SERVICE_CATEGORIES.map((cat) => {
                       const isSelected = armutSelectedCat === cat.name;
                       return (
                         <button
@@ -11658,7 +11858,7 @@ export default function App() {
                   </div>
 
                   {/* Seçilen Kategorinin Alt Hizmetleri */}
-                  {MAIN_SERVICE_CATEGORIES.find(c => c.name === armutSelectedCat) && (
+                  {ALL_SERVICE_CATEGORIES.find(c => c.name === armutSelectedCat) && (
                     <div className="space-y-1.5 pt-1">
                       <label className="text-[11px] font-bold text-slate-700 block">
                         Spesifik Alt Hizmet / İhtiyaç:
@@ -11668,7 +11868,7 @@ export default function App() {
                         onChange={(e) => setArmutSelectedSub(e.target.value)}
                         className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-600 font-semibold"
                       >
-                        {MAIN_SERVICE_CATEGORIES.find(c => c.name === armutSelectedCat)?.subCategories.map((sub) => (
+                        {ALL_SERVICE_CATEGORIES.find(c => c.name === armutSelectedCat)?.subCategories.map((sub) => (
                           <option key={sub.id} value={sub.name}>
                             {sub.icon} {sub.name}
                           </option>
@@ -11736,6 +11936,12 @@ export default function App() {
                       placeholder="Örn: Banyoda lavabo altından su sızıyor, kırmadan cihazla kaçak tespiti ve tamir teklifi istiyorum..."
                       className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-600 leading-relaxed font-medium"
                     />
+                  </div>
+
+                  {/* Fotoğraf (opsiyonel, gerçek yükleme) */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Fotoğraf (Opsiyonel)</label>
+                    <PhotoUploadField value={armutPhoto} onChange={setArmutPhoto} folder="mutlular_haber/talepler" buttonLabel="Fotoğraf Yükle" accentClass="bg-emerald-600 hover:bg-emerald-700 text-white" />
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -11832,7 +12038,7 @@ export default function App() {
                           adres: armutAddress,
                           telefon: armutPhone,
                           urgent: armutTiming.toLowerCase().includes('hemen') || armutTiming.toLowerCase().includes('acil'),
-                          fotolar: ['https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80']
+      fotolar: armutPhoto ? [armutPhoto] : []
                         });
                         if (!newId) return;
 
@@ -11886,6 +12092,8 @@ export default function App() {
         onShowToast={showToast}
         deceasedList={deceasedList}
         onOpenAddDeceased={() => setShowNewDeceasedModal(true)}
+        canDeleteDeceased={canDeleteDeceased}
+        onDeleteDeceased={handleDeleteDeceased}
       />
 
       {/* ── 🚨 ACİL DURUM VE HIZLI ÇAĞRI MODALI ── */}
@@ -12045,114 +12253,92 @@ export default function App() {
         </div>
       )}
 
-      {/* ── 📺 MUTLULAR TV CANLI YAYIN MODALI ── */}
+      {/* ── 📺 MUTLULAR TV CANLI YAYIN MODALI (yönetici / editör tarafından yönetilir) ── */}
       {mutlularTvActive && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          {/* Karartma Backdrop */}
-          <div 
-            onClick={() => setMutlularTvActive(false)} 
+          <div
+            onClick={() => setMutlularTvActive(false)}
             className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm cursor-pointer"
           />
 
           <div className="relative w-full max-w-2xl bg-slate-950 text-white rounded-3xl shadow-2xl border border-slate-800 overflow-hidden z-10 flex flex-col max-h-[92vh]">
-            {/* Canlı Yayın Üst Başlık Çubuğu */}
             <div className="px-4 py-3 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <span className="bg-red-600 text-white font-black text-[11px] px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 shadow-sm">
-                  <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                  CANLI
-                </span>
-                <span className="font-black text-sm text-slate-100 tracking-tight">
-                  📺 Mutlular TV Canlı Yayını
-                </span>
+                {liveConfig.aktif ? (
+                  <span className="bg-red-600 text-white font-black text-[11px] px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    CANLI
+                  </span>
+                ) : (
+                  <span className="bg-slate-700 text-slate-200 font-black text-[11px] px-2.5 py-0.5 rounded-lg">KAPALI</span>
+                )}
+                <span className="font-black text-sm text-slate-100 tracking-tight">📺 Mutlular TV</span>
               </div>
-
-              <div className="flex items-center gap-2">
-                <span className="bg-black/40 px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 text-slate-300 border border-slate-800">
-                  <Eye className="w-3.5 h-3.5 text-red-400" /> 542 Sakin İzliyor
-                </span>
-                <button
-                  onClick={() => setMutlularTvActive(false)}
-                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all cursor-pointer"
-                  title="Kapat"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Video Player */}
-            <div className="relative aspect-[16/9] w-full bg-black group overflow-hidden">
-              <video
-                className="w-full h-full object-cover"
-                autoPlay
-                loop
-                muted={tvMuted}
-                playsInline
-                poster="https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1200&q=80"
-                src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-              />
-
-              {/* Ses Aç / Kapat Butonu */}
               <button
-                onClick={() => setTvMuted(!tvMuted)}
-                className="absolute bottom-3 right-3 bg-black/70 hover:bg-black/90 p-2 rounded-xl text-white transition-all cursor-pointer backdrop-blur-md border border-white/10"
-                title={tvMuted ? "Sesi Aç" : "Sesi Kapat"}
+                onClick={() => setMutlularTvActive(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all cursor-pointer"
+                title="Kapat"
               >
-                {tvMuted ? <VolumeX className="w-4 h-4 text-slate-300" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Program Detayı ve Etkileşim Barı */}
-            <div className="p-4 space-y-3.5 overflow-y-auto bg-slate-900/60">
-              <div className="space-y-1">
-                <span className="text-[10px] font-black uppercase tracking-wider text-red-400 block">
-                  GÜNCEL YAYIN AKIŞI
-                </span>
-                <h3 className="font-black text-base sm:text-lg text-white leading-snug">
-                  🎙️ Mutlular Mahalle Meclisi &amp; Muhtarlık Haftalık Bilgilendirme Bülteni
-                </h3>
-                <p className="text-xs text-slate-400 font-normal leading-relaxed">
-                  Mahallemizdeki altyapı çalışmaları, yeni park projesi ve esnaf dayanışma bülteni canlı yayında mahalle sakinlerimizin katılımıyla görüşülüyor.
-                </p>
-              </div>
-
-              {/* Etkileşim Butonları */}
-              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-slate-800">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (!hasLikedTv) {
-                        setTvLikes(prev => prev + 1);
-                        setHasLikedTv(true);
-                        showToast('Canlı yayına beğeni gönderildi! ❤️');
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
-                      hasLikedTv ? 'bg-red-500/20 text-red-400 border border-red-500/40' : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
-                    }`}
-                  >
-                    <Heart className={`w-3.5 h-3.5 ${hasLikedTv ? 'fill-red-400 text-red-400' : 'text-slate-400'}`} />
-                    <span>{tvLikes} Beğeni</span>
-                  </button>
-
-                  <button
-                    onClick={() => showToast('Canlı sohbet paneli aktiftir. Mahalle sakinleri yorumlarını paylaşıyor.')}
-                    className="px-3 py-1.5 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5 transition-all cursor-pointer border border-slate-700"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-                    <span>48 Canlı Yorum</span>
-                  </button>
+            {liveConfig.aktif && liveConfig.url ? (
+              <>
+                {liveEmbedUrl ? (
+                  <div className="relative aspect-[16/9] w-full bg-black">
+                    <iframe
+                      src={liveEmbedUrl}
+                      title={liveConfig.baslik || 'Mutlular TV Canlı Yayın'}
+                      className="absolute inset-0 w-full h-full"
+                      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                      allowFullScreen
+                      referrerPolicy="strict-origin-when-cross-origin"
+                    />
+                  </div>
+                ) : (
+                  <div className="aspect-[16/9] w-full bg-slate-900 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                    <div className="text-4xl">📡</div>
+                    <p className="text-xs text-slate-300">Bu yayın uygulama içinde oynatılamıyor. Yayını yeni sekmede açabilirsiniz.</p>
+                    <a
+                      href={liveConfig.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black"
+                    >
+                      Yayını Aç ↗
+                    </a>
+                  </div>
+                )}
+                <div className="p-4 space-y-1.5 overflow-y-auto bg-slate-900/60">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-red-400 block">ŞU AN YAYINDA</span>
+                  <h3 className="font-black text-base sm:text-lg text-white leading-snug">{liveConfig.baslik || 'Mutlular Mahallesi Canlı Yayını'}</h3>
+                  {liveConfig.aciklama && <p className="text-xs text-slate-400 leading-relaxed">{liveConfig.aciklama}</p>}
+                  {liveEmbedUrl && (
+                    <a href={liveConfig.url} target="_blank" rel="noopener noreferrer" className="inline-block text-[11px] font-bold text-slate-400 hover:text-white underline pt-1">
+                      Yayın oynatılmazsa yeni sekmede aç ↗
+                    </a>
+                  )}
                 </div>
-
-                <button
-                  onClick={() => setMutlularTvActive(false)}
-                  className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-black text-white transition-all cursor-pointer ml-auto border border-white/10"
-                >
-                  Yayın Penceresini Kapat
-                </button>
+              </>
+            ) : (
+              <div className="p-8 text-center space-y-3 bg-slate-900/60">
+                <div className="text-5xl">📺</div>
+                <h3 className="font-black text-base text-white">Şu an canlı yayın yok</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Cenaze namazı, mahalle toplantısı veya özel bir etkinlik olduğunda yayın burada açılır. Yayın başladığında üstteki düğme kırmızı yanar.
+                </p>
+                {(isUserAdmin || isUserEditor) && (
+                  <button
+                    type="button"
+                    onClick={() => { setMutlularTvActive(false); setShowAdminPanelModal(true); }}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-black text-white cursor-pointer border border-white/10"
+                  >
+                    Yayını Yönet
+                  </button>
+                )}
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -12195,6 +12381,8 @@ export default function App() {
         onRejectTip={handleRejectNewsTip}
         onDeleteNews={handleDeleteNewsItem}
         contentSections={adminContentSections}
+        liveConfig={liveConfig}
+        onSaveLive={handleSaveLive}
         onDeleteContent={handleAdminDeleteContent}
         onDeleteAllContent={handleAdminDeleteAllContent}
         onUpdateUserRole={handleUpdateUserRole}

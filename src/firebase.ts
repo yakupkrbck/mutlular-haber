@@ -193,6 +193,7 @@ export interface UserProfile {
   isApproved?: boolean;
   credits?: number;
   welcomeBonusGiven?: boolean;
+  hesapTipi?: 'usta' | 'esnaf';
   esnafKategori?: string;
   isyeri?: string;
   businessName?: string;
@@ -413,3 +414,11 @@ export {
   increment,
   type User
 };
+
+export interface HizmetAlani {
+  id: string;
+  ad: string;
+  adNorm?: string;
+  ekleyenUid?: string;
+  createdAt?: Timestamp | Date;
+}

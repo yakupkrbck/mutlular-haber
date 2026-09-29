@@ -132,6 +132,7 @@ export function MutlularHeader({
   onOpenSearch,
   onOpenShare,
   onOpenLiveTv,
+  liveActive,
   onOpenProfile,
   onOpenMenu,
   user,
@@ -149,6 +150,7 @@ export function MutlularHeader({
   onOpenSearch: () => void;
   onOpenShare: () => void;
   onOpenLiveTv?: () => void;
+  liveActive?: boolean;
   onOpenProfile: () => void;
   onOpenMenu?: () => void;
   user: any;
@@ -260,12 +262,12 @@ export function MutlularHeader({
           {onOpenLiveTv && (
             <button
               onClick={onOpenLiveTv}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-black text-[11px] shadow-sm transition-all cursor-pointer animate-pulse shrink-0"
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-white font-black text-[11px] shadow-sm transition-all cursor-pointer shrink-0 ${liveActive ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-600'}`}
               title="Mutlular TV Canlı Yayını İzle"
             >
-              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-              <span className="hidden md:inline">📺 Canlı Yayın</span>
-              <span className="md:hidden">Canlı</span>
+              {liveActive && <span className="w-2 h-2 rounded-full bg-white animate-ping" />}
+              <span className="hidden md:inline">{liveActive ? '📺 Canlı Yayın' : '📺 Yayın'}</span>
+              <span className="md:hidden">{liveActive ? 'Canlı' : 'Yayın'}</span>
             </button>
           )}
 
