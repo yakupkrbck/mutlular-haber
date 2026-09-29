@@ -35,7 +35,9 @@ import {
   Flame,
   Info,
   ExternalLink,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  LayoutDashboard
 } from 'lucide-react';
 import { type MarketplaceItem } from './firebase';
 import { type SampleNewsItem } from './mockNeighborhoodData';
@@ -121,10 +123,180 @@ export function MutlularLogo({
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 2a. BAŞLIK PROFİL MENÜSÜ
+// Giriş yapmış herkes (mahalleli, usta, esnaf, editör, yönetici) profil fotoğrafıyla görünür.
+// Fotoğraf yoksa isim baş harfi gösterilir. Rol, fotoğrafın köşesindeki küçük rozetle belli olur.
+// ══════════════════════════════════════════════════════════════════
+const ROLE_META: Record<string, { label: string; emoji: string; ring: string; badge: string; avatar: string }> = {
+  admin: { label: 'Yönetici', emoji: '👑', ring: 'ring-amber-400', badge: 'bg-amber-400', avatar: 'from-amber-500 to-orange-600' },
+  editor: { label: 'Editör', emoji: '✍️', ring: 'ring-indigo-500', badge: 'bg-indigo-600', avatar: 'from-indigo-500 to-violet-600' },
+  usta: { label: 'Usta', emoji: '🛠️', ring: 'ring-blue-500', badge: 'bg-blue-600', avatar: 'from-blue-500 to-sky-600' },
+  esnaf: { label: 'Esnaf', emoji: '🏪', ring: 'ring-emerald-500', badge: 'bg-emerald-600', avatar: 'from-emerald-500 to-teal-600' },
+  sakin: { label: 'Mahalleli', emoji: '🏡', ring: 'ring-orange-400', badge: 'bg-orange-500', avatar: 'from-orange-500 to-red-500' }
+};
+
+function HeaderProfileMenu({
+  active,
+  user,
+  profile,
+  roleKind,
+  isAdmin,
+  isEditor,
+  pendingTipsCount,
+  liveActive,
+  onOpenProfile,
+  onOpenAdminPanel,
+  onOpenLiveTv,
+  onLogout
+}: {
+  active: boolean;
+  user: any;
+  profile?: any;
+  roleKind: 'admin' | 'editor' | 'usta' | 'esnaf' | 'sakin';
+  isAdmin?: boolean;
+  isEditor?: boolean;
+  pendingTipsCount?: number;
+  liveActive?: boolean;
+  onOpenProfile: () => void;
+  onOpenAdminPanel?: () => void;
+  onOpenLiveTv?: () => void;
+  onLogout?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('touchstart', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('touchstart', close);
+    };
+  }, [open]);
+
+  const meta = ROLE_META[roleKind] || ROLE_META.sakin;
+  const fullName: string = profile?.name || user?.displayName || user?.email || 'Kullanıcı';
+  const photo: string | undefined = profile?.photoURL || user?.photoURL || undefined;
+  const initial = fullName.trim().charAt(0).toLocaleUpperCase('tr-TR');
+  const staff = Boolean((isAdmin || isEditor) && onOpenAdminPanel);
+  const pending = pendingTipsCount || 0;
+
+  const go = (fn?: () => void) => {
+    setOpen(false);
+    fn?.();
+  };
+
+  const Avatar = ({ size }: { size: string }) =>
+    photo ? (
+      <img src={photo} alt="Profil" className={`${size} rounded-full object-cover`} referrerPolicy="no-referrer" />
+    ) : (
+      <div className={`${size} rounded-full bg-gradient-to-tr ${meta.avatar} text-white flex items-center justify-center font-black text-sm`}>
+        {initial}
+      </div>
+    );
+
+  return (
+    <div ref={boxRef} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`relative rounded-full p-0.5 transition-all cursor-pointer active:scale-95 ring-2 ${active ? meta.ring : 'ring-transparent'}`}
+        aria-label="Hesap menüsü"
+        aria-expanded={open}
+        title={fullName}
+      >
+        <Avatar size="w-8 h-8 sm:w-9 sm:h-9" />
+        <span
+          className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full ${meta.badge} border-2 border-white flex items-center justify-center text-[8px] leading-none`}
+        >
+          {meta.emoji}
+        </span>
+        {staff && pending > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center">
+            {pending > 9 ? '9+' : pending}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden z-50">
+          <div className="p-3.5 flex items-center gap-3 bg-slate-50 border-b border-slate-100">
+            <Avatar size="w-11 h-11" />
+            <div className="min-w-0">
+              <div className="font-black text-sm text-slate-900 truncate">{fullName}</div>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`text-[10px] font-black text-white px-1.5 py-0.5 rounded-md ${meta.badge}`}>
+                  {meta.emoji} {meta.label}
+                </span>
+              </div>
+              {(profile?.isyeri || user?.email) && (
+                <div className="text-[11px] text-slate-500 truncate mt-0.5">{profile?.isyeri || user?.email}</div>
+              )}
+            </div>
+          </div>
+
+          <div className="p-1.5 text-sm">
+            <button
+              onClick={() => go(onOpenProfile)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-slate-800 font-semibold text-left cursor-pointer"
+            >
+              <UserIcon className="w-4 h-4 text-slate-500" />
+              <span>Profilim</span>
+            </button>
+
+            {staff && (
+              <button
+                onClick={() => go(onOpenAdminPanel)}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-slate-800 font-semibold text-left cursor-pointer"
+              >
+                <LayoutDashboard className="w-4 h-4 text-slate-500" />
+                <span className="flex-1">{isAdmin ? 'Yönetici Paneli' : 'Editör Masası'}</span>
+                {pending > 0 && (
+                  <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center">
+                    {pending}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {onOpenLiveTv && (
+              <button
+                onClick={() => go(onOpenLiveTv)}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-slate-800 font-semibold text-left cursor-pointer"
+              >
+                <Radio className="w-4 h-4 text-slate-500" />
+                <span className="flex-1">Canlı Yayın</span>
+                {liveActive && <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />}
+              </button>
+            )}
+
+            {onLogout && (
+              <>
+                <div className="my-1 border-t border-slate-100" />
+                <button
+                  onClick={() => go(onLogout)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 font-semibold text-left cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Çıkış Yap</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 2. HEADER
 // EN SOLDA: Arama mercek işareti (🔍)
 // ORTADA: Mutlular Haber / Mutlular Alım Satım / Mutlular Hizmet
-// EN SAĞINDA: Kullanıcı profili
+// EN SAĞINDA: Bildirimler + profil fotoğrafı (hesap menüsü)
 // ══════════════════════════════════════════════════════════════════
 export function MutlularHeader({
   activeTab,
@@ -143,7 +315,9 @@ export function MutlularHeader({
   pendingTipsCount,
   onOpenAdminPanel,
   unreadNotifCount,
-  onOpenNotifications
+  onOpenNotifications,
+  roleKind,
+  onLogout
 }: {
   activeTab: string;
   onNavigate: (tab: 'home' | 'market' | 'services' | 'davet' | 'profile') => void;
@@ -162,6 +336,8 @@ export function MutlularHeader({
   onOpenAdminPanel?: () => void;
   unreadNotifCount?: number;
   onOpenNotifications?: () => void;
+  roleKind?: 'admin' | 'editor' | 'usta' | 'esnaf' | 'sakin' | null;
+  onLogout?: () => void;
 }) {
   const isMarket = activeTab === 'market';
   const isServices = activeTab === 'services';
@@ -256,32 +432,19 @@ export function MutlularHeader({
           <MutlularLogo variant={brandVariant} />
         </div>
 
-        {/* ── SAĞ ALAN: CANLI YAYIN + PAYLAŞ + EN SAĞINDA KULLANICI PROFİLİ ── */}
+        {/* ── SAĞ ALAN: BİLDİRİMLER + PROFİL FOTOĞRAFI (giriş yapmışsa) ── */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 ml-auto">
-          {/* Canlı Yayın Düğmesi */}
-          {onOpenLiveTv && (
-            <button
-              onClick={onOpenLiveTv}
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-white font-black text-[11px] shadow-sm transition-all cursor-pointer shrink-0 ${liveActive ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-600'}`}
-              title="Mutlular TV Canlı Yayını İzle"
-            >
-              {liveActive && <span className="w-2 h-2 rounded-full bg-white animate-ping" />}
-              <span className="hidden md:inline">{liveActive ? '📺 Canlı Yayın' : '📺 Yayın'}</span>
-              <span className="md:hidden">{liveActive ? 'Canlı' : 'Yayın'}</span>
-            </button>
-          )}
-
-          {/* ＋ PAYLAŞ / İLAN VER BUTONU (HER ALANA ÖZEL RENK VE İSİM) */}
+          {/* Masaüstünde hızlı paylaşım; telefonda alt menüdeki + düğmesi kullanılır */}
           <button
             onClick={onOpenShare}
-            className={`hidden sm:flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-2xl text-white font-black text-xs shadow-sm transition-all cursor-pointer active:scale-97 shrink-0 ${
+            className={`hidden lg:flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-white font-black text-xs shadow-sm transition-all cursor-pointer active:scale-97 shrink-0 ${
               isMarket
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/25'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700'
                 : isServices
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/25'
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
                 : isDavet
-                ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-purple-500/25'
-                : 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 shadow-orange-500/25'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
+                : 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700'
             }`}
             title={
               isMarket
@@ -294,12 +457,10 @@ export function MutlularHeader({
             }
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span className="hidden md:inline">
-              {isMarket ? 'İlan Ver' : isServices ? 'Usta Ekle' : isDavet ? 'Duyuru Paylaş' : 'Haber Bildir'}
-            </span>
+            <span>{isMarket ? 'İlan Ver' : isServices ? 'Usta Ekle' : isDavet ? 'Duyuru Paylaş' : 'Haber Bildir'}</span>
           </button>
 
-          {/* ── BİLDİRİMLER (YENİ TALEP / TEKLİF) ── */}
+          {/* Bildirimler */}
           {onOpenNotifications && (
             <button
               onClick={onOpenNotifications}
@@ -320,53 +481,32 @@ export function MutlularHeader({
             </button>
           )}
 
-          {/* ── YÖNETİCİ & EDİTÖR MASASI DÜĞMESİ ── */}
-          {(isAdmin || isEditor) && onOpenAdminPanel && (
+          {/* Profil: giriş yapmışsa fotoğraf + menü, yapmamışsa "Giriş Yap" */}
+          {user || profile ? (
+            <HeaderProfileMenu
+              active={activeTab === 'profile'}
+              user={user}
+              profile={profile}
+              roleKind={roleKind || 'sakin'}
+              isAdmin={isAdmin}
+              isEditor={isEditor}
+              pendingTipsCount={pendingTipsCount}
+              liveActive={liveActive}
+              onOpenProfile={onOpenProfile}
+              onOpenAdminPanel={onOpenAdminPanel}
+              onOpenLiveTv={onOpenLiveTv}
+              onLogout={onLogout}
+            />
+          ) : (
             <button
-              onClick={onOpenAdminPanel}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-97 shrink-0 border shadow-2xs ${
-                isAdmin
-                  ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border-amber-300 ring-2 ring-amber-400/20'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500 ring-2 ring-indigo-500/20'
-              }`}
-              title={isAdmin ? "👑 Yönetici Paneli (Haber, İhbar & Roller)" : "✍️ Editör Masası (Haber & İhbarlar)"}
+              onClick={onOpenProfile}
+              className="flex items-center gap-1.5 h-9 sm:h-10 px-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black transition-all cursor-pointer active:scale-95 shrink-0"
+              aria-label="Giriş Yap"
             >
-              <span className="text-sm">{isAdmin ? '👑' : '✍️'}</span>
-              <span className="hidden lg:inline">{isAdmin ? 'Yönetici' : 'Editör'}</span>
-              {(pendingTipsCount || 0) > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-red-600 text-white animate-pulse">
-                  {pendingTipsCount}
-                </span>
-              )}
+              <UserIcon className="w-4 h-4" />
+              <span className="hidden min-[400px]:inline">Giriş Yap</span>
             </button>
           )}
-
-          {/* ── EN SAĞINDA: KULLANICI PROFİLİ ── */}
-          <button
-            onClick={onOpenProfile}
-            className={`flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-2xl transition-all cursor-pointer shrink-0 border shadow-2xs active:scale-95 ${
-              activeTab === 'profile'
-                ? 'bg-slate-900 text-white border-slate-900 ring-2 ring-slate-900/20'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200/80'
-            }`}
-            title={user || profile ? (profile?.name || user?.displayName || 'Profilim') : 'Giriş Yap / Kayıt Ol'}
-            aria-label="Kullanıcı Profili"
-          >
-            {profile?.photoURL || user?.photoURL ? (
-              <img
-                src={profile?.photoURL || user?.photoURL}
-                alt="Profil"
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-white shadow-2xs"
-              />
-            ) : (
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-slate-800 to-slate-700 text-white flex items-center justify-center text-xs font-bold shadow-2xs">
-                <UserIcon className="w-3.5 h-3.5" />
-              </div>
-            )}
-            <span className="hidden md:inline text-xs font-bold truncate max-w-[85px]">
-              {profile?.name || user?.displayName || user?.email ? (profile?.name || user?.displayName || user?.email).split(' ')[0] : 'Giriş Yap'}
-            </span>
-          </button>
         </div>
       </div>
     </header>
