@@ -159,6 +159,7 @@ import {
 } from 'lucide-react';
 import PhotoUploadField from './PhotoUploadField';
 import { deleteField } from 'firebase/firestore';
+import { sendEmailVerification } from 'firebase/auth';
 
 const ADMIN_PHONE = '905321112233'; // Dijital Mutlular / Mutlular Haber Portalı Koordinatör WhatsApp Hattı
 
@@ -1694,7 +1695,7 @@ export default function App() {
   useEffect(() => {
     if (deceasedList.length <= 1) return;
     const interval = setInterval(() => {
-      setCurrentDeceasedIdx(prev => (prev + 1) % deceasedList.length);
+      setCurrentDeceasedIdx(prev => (deceasedList.length ? (prev + 1) % deceasedList.length : 0));
     }, 7000);
     return () => clearInterval(interval);
   }, [deceasedList.length]);
@@ -1876,7 +1877,12 @@ export default function App() {
       setUser(currentUser);
       if (currentUser) {
         try {
-          const isUserAdmin = currentUser.email === 'yakupkrbck@gmail.com';
+          const isAdminEmail = currentUser.email === 'yakupkrbck@gmail.com';
+          const isUserAdmin = isAdminEmail && currentUser.emailVerified;
+          if (isAdminEmail && !currentUser.emailVerified) {
+            sendEmailVerification(currentUser).catch(() => {});
+            showToast('Yönetici yetkisi için e-postanıza gönderilen doğrulama bağlantısına tıklayın, sonra tekrar giriş yapın. 📧');
+          }
           const userRef = doc(db, 'users', currentUser.uid);
           const snap = await getDoc(userRef);
           if (snap.exists()) {
@@ -1933,7 +1939,7 @@ export default function App() {
     // News
     const qNews = query(collection(db, 'haberler'), orderBy('createdAt', 'desc'));
     const unsubNews = onSnapshot(qNews, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: SampleNewsItem[] = [];
         snap.forEach((d) => {
@@ -1951,7 +1957,7 @@ export default function App() {
     // Marketplace
     const qMarket = query(collection(db, 'marketplace_items'), orderBy('createdAt', 'desc'));
     const unsubMarket = onSnapshot(qMarket, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: MarketplaceItem[] = [];
         snap.forEach((d) => {
@@ -1969,7 +1975,7 @@ export default function App() {
     // Lost & Found
     const qLf = query(collection(db, 'lost_found_items'), orderBy('createdAt', 'desc'));
     const unsubLf = onSnapshot(qLf, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: LostFoundItem[] = [];
         snap.forEach((d) => {
@@ -1987,7 +1993,7 @@ export default function App() {
     // Service Requests
     const qReq = query(collection(db, 'service_requests'), orderBy('createdAt', 'desc'));
     const unsubReq = onSnapshot(qReq, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: ServiceRequest[] = [];
         snap.forEach((d) => {
@@ -2017,7 +2023,7 @@ export default function App() {
     // Campaigns / Mahalle Pazarı
     const qCamp = query(collection(db, 'esnaf_kampanyalar'), orderBy('createdAt', 'desc'));
     const unsubCamp = onSnapshot(qCamp, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: EsnafCampaign[] = [];
         snap.forEach((d) => {
@@ -2035,7 +2041,7 @@ export default function App() {
     // Mahalle Kürsüsü
     const qKursu = query(collection(db, 'mahalle_kursusu'), orderBy('createdAt', 'desc'));
     const unsubKursu = onSnapshot(qKursu, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: MahalleKursusuItem[] = [];
         snap.forEach((d) => {
@@ -2053,7 +2059,7 @@ export default function App() {
     // Mahalle Davetleri (Düğün, Nişan, Sünnet vb.)
     const qDavet = query(collection(db, 'mahalle_davetleri'), orderBy('createdAt', 'desc'));
     const unsubDavet = onSnapshot(qDavet, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: MahalleDavetItem[] = [];
         snap.forEach((d) => {
@@ -2071,7 +2077,7 @@ export default function App() {
     // Cenaze & Vefat İlanları Dinleyicisi
     const qDeceased = query(collection(db, 'cenaze_ilanlari'), orderBy('createdAt', 'desc'));
     const unsubDeceased = onSnapshot(qDeceased, (snap) => {
-      if (!snap.empty) {
+      {
         const seen = new Set<string>();
         const items: DeceasedItem[] = [];
         snap.forEach((d) => {
@@ -2126,7 +2132,9 @@ export default function App() {
         console.warn('Auto-seed check note:', e.message);
       }
     };
-    autoSeedIfClean();
+    // Otomatik örnek veri yüklemesi kapatıldı: silinen test verileri geri gelmesin.
+    // Örnek veri gerekirse yönetici panelindeki manuel aktarım düğmesi kullanılır.
+    void autoSeedIfClean;
 
     return () => {
       unsubNews();
@@ -2220,13 +2228,75 @@ export default function App() {
   };
 
   const handleDeleteNewsItem = async (id?: string, title?: string) => {
-    setNewsItems(prev => prev.filter(n => n.id !== id && n.baslik !== title));
     if (id && !id.startsWith('ihbar_') && !id.startsWith('haber_')) {
       try {
         await deleteDoc(doc(db, 'haberler', id));
-      } catch (_) {}
+      } catch (e: any) {
+        showToast('Haber silinemedi: ' + (e?.code === 'permission-denied' ? 'yetkiniz yok (yönetici e-postanızı doğrulayıp yeniden giriş yapın)' : (e?.message || 'bilinmeyen hata')), true);
+        return;
+      }
     }
+    setNewsItems(prev => prev.filter(n => n.id !== id && n.baslik !== title));
     showToast('Kayıt silindi. 🗑️');
+  };
+
+  // ── Yönetici: tüm içerik türleri için silme (haber, ilan, kayıp eşya, talep, davet, kampanya, kürsü, vefat) ──
+  const adminContentSetters: Record<string, (fn: (prev: any[]) => any[]) => void> = {
+    haberler: setNewsItems as any,
+    marketplace_items: setMarketplaceItems as any,
+    lost_found_items: setLostFoundItems as any,
+    service_requests: setServiceRequests as any,
+    mahalle_davetleri: setInvitationItems as any,
+    esnaf_kampanyalar: setCampaigns as any,
+    mahalle_kursusu: setKursuItems as any,
+    cenaze_ilanlari: setDeceasedList as any
+  };
+
+  const describeDeleteError = (e: any) =>
+    e?.code === 'permission-denied'
+      ? 'yetkiniz yok (yönetici e-postanızı doğrulayıp yeniden giriş yapın; Firestore kuralları yayınlı olmalı)'
+      : (e?.message || 'bilinmeyen hata');
+
+  const handleAdminDeleteContent = async (col: string, id: string): Promise<void> => {
+    if (!isUserAdmin) {
+      showToast('Bu işlem yalnızca yöneticiye açıktır.', true);
+      return;
+    }
+    try {
+      if (col === 'service_requests') {
+        const offerSnap = await getDocs(query(collection(db, 'offers'), where('requestId', '==', id)));
+        await Promise.all(offerSnap.docs.map(d => deleteDoc(d.ref)));
+      }
+      await deleteDoc(doc(db, col, id));
+      adminContentSetters[col]?.(prev => prev.filter((x: any) => x.id !== id));
+      showToast('Kayıt silindi. 🗑️');
+    } catch (e: any) {
+      showToast('Silinemedi: ' + describeDeleteError(e), true);
+    }
+  };
+
+  const handleAdminDeleteAllContent = async (col: string): Promise<void> => {
+    if (!isUserAdmin) {
+      showToast('Bu işlem yalnızca yöneticiye açıktır.', true);
+      return;
+    }
+    try {
+      const snap = await getDocs(collection(db, col));
+      if (col === 'service_requests') {
+        const offerSnap = await getDocs(collection(db, 'offers'));
+        await Promise.all(offerSnap.docs.map(d => deleteDoc(d.ref)));
+      }
+      const results = await Promise.allSettled(snap.docs.map(d => deleteDoc(d.ref)));
+      const failed = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+      if (failed.length === 0) {
+        adminContentSetters[col]?.(() => []);
+        showToast(`${snap.size} kayıt silindi. 🗑️`);
+      } else {
+        showToast(`${snap.size - failed.length} kayıt silindi, ${failed.length} kayıt silinemedi: ` + describeDeleteError(failed[0].reason), true);
+      }
+    } catch (e: any) {
+      showToast('Silinemedi: ' + describeDeleteError(e), true);
+    }
   };
 
   const handleUpdateUserRole = async (targetUid: string, newRole: UserRole, targetEmail?: string) => {
@@ -2700,8 +2770,8 @@ export default function App() {
         }
 
         const emailClean = authEmail.trim().toLowerCase();
-        const isUserAdmin = emailClean === 'yakupkrbck@gmail.com';
-        const finalRole: UserRole = isUserAdmin ? 'admin' : authRole;
+        // Yönetici yetkisi yalnızca e-posta doğrulandıktan sonra (girişte) verilir; kayıt her zaman normal rolle başlar.
+        const finalRole: UserRole = authRole;
 
         let userUid = '';
         suppressAutoProfileRef.current = true;
@@ -2716,7 +2786,8 @@ export default function App() {
             email: emailClean,
             telefon: authPhone.trim(),
             role: finalRole,
-            credits: finalRole === 'admin' ? 9999 : (finalRole === 'esnaf' ? 10 : 0),
+            credits: finalRole === 'esnaf' ? 10 : 0,
+            welcomeBonusGiven: finalRole === 'esnaf' ? true : undefined,
             isyeri: finalRole === 'esnaf' ? authIsyeri.trim() : undefined,
             esnafKategori: finalRole === 'esnaf' ? authEsnafKategori : undefined,
             isApproved: true,
@@ -2771,7 +2842,7 @@ export default function App() {
       const userRef = doc(db, 'users', u.uid);
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
-        const isAdminEmail = u.email === 'yakupkrbck@gmail.com';
+        const isAdminEmail = u.email === 'yakupkrbck@gmail.com' && u.emailVerified;
         const newRole: UserRole = isAdminEmail ? 'admin' : authRole;
         const newProfile: UserProfile = {
           uid: u.uid,
@@ -2779,7 +2850,8 @@ export default function App() {
           email: u.email || '',
           telefon: authPhone.trim() || '',
           role: newRole,
-          credits: isAdminEmail ? 9999 : (authRole === 'esnaf' ? 10 : 0),
+          credits: isAdminEmail ? 9999 : (newRole === 'esnaf' ? 10 : 0),
+          welcomeBonusGiven: (!isAdminEmail && newRole === 'esnaf') ? true : undefined,
           isyeri: newRole === 'esnaf' ? (authIsyeri.trim() || u.displayName || '') : undefined,
           esnafKategori: newRole === 'esnaf' ? authEsnafKategori : undefined,
           isApproved: true,
@@ -2984,7 +3056,9 @@ export default function App() {
       if (user && profile) {
         // Mevcut kullanıcıyı doğrudan esnaf hesabına yükselt
         const userRef = doc(db, 'users', user.uid);
-        const updatedCredits = Math.max(10, (profile.credits || 0) + 10);
+        // Hoş geldin kredisi (10) yalnızca bir kez verilir; zaten esnaf olan veya bonusu almış hesaba tekrar eklenmez.
+        const alreadyGotBonus = profile.role === 'esnaf' || (profile as any).welcomeBonusGiven === true;
+        const updatedCredits = alreadyGotBonus ? (profile.credits || 0) : Math.max(10, profile.credits || 0);
         const updatedProfile: UserProfile = {
           ...profile,
           role: 'esnaf',
@@ -3011,6 +3085,7 @@ export default function App() {
           esnafAciklama: updatedProfile.esnafAciklama || '',
           telefon: updatedProfile.telefon || '',
           credits: updatedCredits,
+          welcomeBonusGiven: true,
           isApproved: true,
         });
 
@@ -3052,6 +3127,7 @@ export default function App() {
             uzmanlikEtiketleri: artisanTags,
             esnafAciklama: artisanDescription.trim(),
             credits: 10,
+            welcomeBonusGiven: true,
             isApproved: true,
             createdAt: new Date(),
           };
@@ -3330,7 +3406,7 @@ export default function App() {
   };
 
   // Role & Admin Check
-  const isUserAdmin = Boolean((user || profile) && (demoRole === 'admin' || profile?.role === 'admin' || user?.email === 'yakupkrbck@gmail.com'));
+  const isUserAdmin = Boolean((user || profile) && (demoRole === 'admin' || profile?.role === 'admin' || (user?.email === 'yakupkrbck@gmail.com' && user?.emailVerified)));
   const isUserEditor = Boolean((user || profile) && (isUserAdmin || demoRole === 'editor' || profile?.role === 'editor'));
   const pendingTipsCount = useMemo(() => {
     return newsItems.filter(n => n.status === 'pending').length;
@@ -3725,11 +3801,24 @@ export default function App() {
 
   const headerBrand = getHeaderBrand();
 
+  const adminContentSections = [
+    { col: 'haberler', label: 'Haberler', emoji: '📰', items: newsItems.map((n: any) => ({ id: n.id || '', title: n.baslik || '(başlıksız)', sub: [n.kategori, n.authorName, n.status === 'pending' ? 'Onay bekliyor' : ''].filter(Boolean).join(' • ') })) },
+    { col: 'marketplace_items', label: 'Emlak & 2. El İlanları', emoji: '🏷️', items: marketplaceItems.map((m: any) => ({ id: m.id || '', title: m.baslik || '(başlıksız)', sub: [m.kategori, m.saticiAdi].filter(Boolean).join(' • ') })) },
+    { col: 'lost_found_items', label: 'Kayıp Eşya', emoji: '🔎', items: lostFoundItems.map((l: any) => ({ id: l.id || '', title: l.baslik || '(başlıksız)', sub: [l.tur, l.kategori].filter(Boolean).join(' • ') })) },
+    { col: 'service_requests', label: 'Usta Talepleri', emoji: '🛠️', items: serviceRequests.map((r: any) => ({ id: r.id || '', title: r.baslik || '(başlıksız)', sub: [r.kategori, r.authorName].filter(Boolean).join(' • ') })) },
+    { col: 'mahalle_davetleri', label: 'Davetiyeler', emoji: '💍', items: invitationItems.map((d: any) => ({ id: d.id || '', title: d.baslik || '(başlıksız)', sub: [d.tur, d.davetSahipleri].filter(Boolean).join(' • ') })) },
+    { col: 'esnaf_kampanyalar', label: 'Esnaf Kampanyaları', emoji: '🏪', items: campaigns.map((c: any) => ({ id: c.id || '', title: c.baslik || '(başlıksız)', sub: [c.isyeriAdi, c.kategori].filter(Boolean).join(' • ') })) },
+    { col: 'mahalle_kursusu', label: 'Mahalle Kürsüsü', emoji: '🎤', items: kursuItems.map((k: any) => ({ id: k.id || '', title: k.baslik || '(başlıksız)', sub: [k.kategori, k.authorName].filter(Boolean).join(' • ') })) },
+    { col: 'cenaze_ilanlari', label: 'Vefat İlanları', emoji: '🕊️', items: deceasedList.map((d: any) => ({ id: d.id || '', title: d.fullName || '(isimsiz)', sub: [d.dateStr, d.mosque].filter(Boolean).join(' • ') })) }
+  ];
+
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] flex flex-col font-sans pb-24">
       {/* ════════════════════════════════════════
            EN ÜSTTE TEK ŞERİT: CENAZE İLANLARI (VEFAT & TAZİYE)
       ════════════════════════════════════════ */}
+      {deceasedList.length > 0 && (
       <aside className="bg-slate-950 text-slate-100 border-b border-slate-800 text-xs py-2 px-3 sm:px-4 z-50">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-2.5">
           <div 
@@ -3817,6 +3906,7 @@ export default function App() {
           </div>
         </div>
       </aside>
+      )}
 
       {/* ── MUTLULAR HABER & HİZMET MODERN SABİT HEADER (SOL: ARAMA | ORTA: MUTLULAR HABER / HİZMET | SAĞ: PROFİL) ── */}
       <MutlularHeader
@@ -6420,7 +6510,7 @@ export default function App() {
                 </button>
               )}
 
-              {(demoRole === 'admin' || user?.email === 'yakupkrbck@gmail.com') && (
+              {(demoRole === 'admin' || (user?.email === 'yakupkrbck@gmail.com' && user?.emailVerified)) && (
                 <button
                   type="button"
                   onClick={() => setProfileSubTab('admin')}
@@ -7003,7 +7093,7 @@ export default function App() {
             )}
 
             {/* SEKME 4: YÖNETİM PANELİ */}
-            {profileSubTab === 'admin' && (demoRole === 'admin' || user?.email === 'yakupkrbck@gmail.com') && (
+            {profileSubTab === 'admin' && (demoRole === 'admin' || (user?.email === 'yakupkrbck@gmail.com' && user?.emailVerified)) && (
               <div className="bg-gradient-to-br from-purple-950 via-indigo-950 to-slate-900 rounded-3xl p-6 text-white shadow-xl space-y-4 border border-purple-500/30 animate-in fade-in">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
@@ -7444,7 +7534,7 @@ export default function App() {
                     key={notif.id}
                     onClick={() => {
                       if (notif.type === 'sondakika') {
-                        handleOpenNewsDetail(newsItems[0]);
+                        if (newsItems[0]) handleOpenNewsDetail(newsItems[0]);
                       } else if (notif.type === 'anket') {
                         setActiveTab('meclis');
                       } else if (notif.type === 'ilan') {
@@ -11847,6 +11937,9 @@ export default function App() {
         onApproveTip={handleApproveNewsTip}
         onRejectTip={handleRejectNewsTip}
         onDeleteNews={handleDeleteNewsItem}
+        contentSections={adminContentSections}
+        onDeleteContent={handleAdminDeleteContent}
+        onDeleteAllContent={handleAdminDeleteAllContent}
         onUpdateUserRole={handleUpdateUserRole}
         onSwitchDemoRole={(r) => {
           setDemoRole(r);
