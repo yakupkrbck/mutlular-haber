@@ -202,6 +202,7 @@ export interface UserProfile {
   uzmanlikEtiketleri?: string[];
   esnafAciklama?: string;
   newsNotificationPreferences?: NewsNotificationPreferences;
+  notifSeenAt?: number;
   passwordHash?: string;
   createdAt?: Timestamp | Date;
 }
@@ -248,6 +249,8 @@ export interface ServiceRequest {
   fotolar: string[];
   status: 'open' | 'in_progress' | 'completed' | 'cancelled';
   offerCount: number;
+  kategoriId?: string;
+  acceptedOfferId?: string;
   createdAt?: Timestamp | Date;
 }
 
@@ -262,6 +265,11 @@ export interface ServiceOffer {
   tahminiSure?: string;
   creditCost: number;
   status: 'pending' | 'accepted' | 'rejected';
+  requestOwnerUid?: string;
+  requestTitle?: string;
+  acceptedAt?: Timestamp | Date;
+  musteriTelefon?: string;
+  musteriAdi?: string;
   createdAt?: Timestamp | Date;
 }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  Bell,
   Search,
   Plus,
   Share2,
@@ -139,7 +140,9 @@ export function MutlularHeader({
   isAdmin,
   isEditor,
   pendingTipsCount,
-  onOpenAdminPanel
+  onOpenAdminPanel,
+  unreadNotifCount,
+  onOpenNotifications
 }: {
   activeTab: string;
   onNavigate: (tab: 'home' | 'market' | 'services' | 'davet' | 'profile') => void;
@@ -155,6 +158,8 @@ export function MutlularHeader({
   isEditor?: boolean;
   pendingTipsCount?: number;
   onOpenAdminPanel?: () => void;
+  unreadNotifCount?: number;
+  onOpenNotifications?: () => void;
 }) {
   const isMarket = activeTab === 'market';
   const isServices = activeTab === 'services';
@@ -291,6 +296,27 @@ export function MutlularHeader({
               {isMarket ? 'İlan Ver' : isServices ? 'Usta Ekle' : isDavet ? 'Duyuru Paylaş' : 'Haber Bildir'}
             </span>
           </button>
+
+          {/* ── BİLDİRİMLER (YENİ TALEP / TEKLİF) ── */}
+          {onOpenNotifications && (
+            <button
+              onClick={onOpenNotifications}
+              className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer border shadow-2xs active:scale-95 shrink-0 ${
+                activeTab === 'notifications'
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80'
+              }`}
+              title="Bildirimler"
+              aria-label="Bildirimler"
+            >
+              <Bell className="w-4.5 h-4.5" />
+              {(unreadNotifCount || 0) > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center">
+                  {(unreadNotifCount || 0) > 9 ? '9+' : unreadNotifCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* ── YÖNETİCİ & EDİTÖR MASASI DÜĞMESİ ── */}
           {(isAdmin || isEditor) && onOpenAdminPanel && (

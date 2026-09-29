@@ -51,6 +51,7 @@ import {
   type SampleNewsItem
 } from './mockNeighborhoodData';
 import { MutlularAdminEditorPanel } from './MutlularAdminEditorPanel';
+import { resolveKategoriId, requestMatchesEsnaf, toMillis, timeAgoTr } from './serviceMatching';
 import {
   PHARMACIES,
   NOTARIES,
@@ -1411,6 +1412,10 @@ export default function App() {
   const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>(INITIAL_SERVICES);
   const [campaigns, setCampaigns] = useState<EsnafCampaign[]>(INITIAL_CAMPAIGNS);
   const [offersMap, setOffersMap] = useState<Record<string, ServiceOffer[]>>({});
+  const [notifSeenAt, setNotifSeenAt] = useState<number>(0);
+  const [readDerivedIds, setReadDerivedIds] = useState<string[]>([]);
+  const [requestScope, setRequestScope] = useState<'uygun' | 'tumu'>('uygun');
+  const [acceptingOfferId, setAcceptingOfferId] = useState<string | null>(null);
 
   // ── 💍 MAHALLE CEMİYET & DAVETLERİ STATE ──
   const [invitationItems, setInvitationItems] = useState<MahalleDavetItem[]>(INITIAL_INVITATIONS);
@@ -1994,31 +1999,13 @@ export default function App() {
     const qReq = query(collection(db, 'service_requests'), orderBy('createdAt', 'desc'));
     const unsubReq = onSnapshot(qReq, (snap) => {
       {
-        const seen = new Set<string>();
         const items: ServiceRequest[] = [];
         snap.forEach((d) => {
-          const data = d.data();
-          const key = data.baslik || data.id || d.id;
-          if (!seen.has(key)) {
-            seen.add(key);
-            items.push({ ...data, id: d.id } as ServiceRequest);
-          }
+          items.push({ ...d.data(), id: d.id } as ServiceRequest);
         });
         setServiceRequests(items);
       }
     }, (err) => console.warn('service firestore:', err.message));
-
-    // Offers
-    const qOffers = query(collection(db, 'offers'), orderBy('createdAt', 'desc'));
-    const unsubOffers = onSnapshot(qOffers, (snap) => {
-      const map: Record<string, ServiceOffer[]> = {};
-      snap.forEach((d) => {
-        const o = { ...d.data(), id: d.id } as ServiceOffer;
-        if (!map[o.requestId]) map[o.requestId] = [];
-        map[o.requestId].push(o);
-      });
-      setOffersMap(map);
-    }, (err) => console.warn('offers firestore:', err.message));
 
     // Campaigns / Mahalle Pazarı
     const qCamp = query(collection(db, 'esnaf_kampanyalar'), orderBy('createdAt', 'desc'));
@@ -2141,7 +2128,6 @@ export default function App() {
       unsubMarket();
       unsubLf();
       unsubReq();
-      unsubOffers();
       unsubCamp();
       unsubKursu();
       unsubDavet();
@@ -2225,6 +2211,210 @@ export default function App() {
       } catch (_) {}
     }
     showToast('Haber ihbarı reddedildi. ❌');
+  };
+
+  // ── TEKLİFLER: herkes yalnızca kendisini ilgilendiren teklifleri dinler ──
+  // Usta: verdiği teklifler • Talep sahibi: talebine gelen teklifler • Yönetici: tümü
+  useEffect(() => {
+    if (!user) {
+      setOffersMap({});
+      return;
+    }
+    const isAdm = profile?.role === 'admin' || (user.email === 'yakupkrbck@gmail.com' && user.emailVerified);
+    const queries = isAdm
+      ? [query(collection(db, 'offers'))]
+      : [
+          query(collection(db, 'offers'), where('esnafUid', '==', user.uid)),
+          query(collection(db, 'offers'), where('requestOwnerUid', '==', user.uid))
+        ];
+    const buckets: ServiceOffer[][] = queries.map(() => []);
+    const publish = () => {
+      const byId = new Map<string, ServiceOffer>();
+      buckets.flat().forEach((o) => { if (o.id) byId.set(o.id, o); });
+      const map: Record<string, ServiceOffer[]> = {};
+      Array.from(byId.values())
+        .sort((a, b) => (toMillis(b.createdAt) || Date.now()) - (toMillis(a.createdAt) || Date.now()))
+        .forEach((o) => {
+          if (!map[o.requestId]) map[o.requestId] = [];
+          map[o.requestId].push(o);
+        });
+      setOffersMap(map);
+    };
+    const unsubs = queries.map((q, idx) =>
+      onSnapshot(
+        q,
+        (snap) => {
+          buckets[idx] = snap.docs.map((d) => ({ ...d.data(), id: d.id } as ServiceOffer));
+          publish();
+        },
+        (err) => console.warn('offers firestore:', err.message)
+      )
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [user?.uid, profile?.role]);
+
+  // ── BİLDİRİM İZLEME NOKTASI (en son ne zaman bakıldı) ──
+  useEffect(() => {
+    if (!user || !profile) return;
+    if (typeof profile.notifSeenAt === 'number') {
+      setNotifSeenAt(profile.notifSeenAt);
+      return;
+    }
+    const now = Date.now();
+    setNotifSeenAt(now);
+    updateDoc(doc(db, 'users', user.uid), { notifSeenAt: now }).catch(() => {});
+  }, [user?.uid, profile?.uid, profile?.notifSeenAt]);
+
+  // ── TÜRETİLMİŞ BİLDİRİMLER: yeni talep (uygun ustalara) • yeni teklif (talep sahibine) • teklif kabul (ustaya) ──
+  const derivedNotifications = useMemo(() => {
+    if (!user || !notifSeenAt) return [] as any[];
+    const list: any[] = [];
+    const push = (n: any) => list.push({ ...n, time: timeAgoTr(n.ms), read: n.ms <= notifSeenAt || readDerivedIds.includes(n.id) });
+
+    if (profile?.role === 'esnaf') {
+      serviceRequests.forEach((r) => {
+        if (!r.id || r.uid === user.uid) return;
+        if (r.status && r.status !== 'open') return;
+        if (!requestMatchesEsnaf(r, profile, MAIN_SERVICE_CATEGORIES)) return;
+        const ms = toMillis(r.createdAt) || Date.now();
+        push({ id: 'dn_req_' + r.id, type: 'yeni_talep', category: 'YENİ TALEP', icon: '🛠️', badgeColor: 'bg-orange-600', title: `Size uygun yeni talep: ${r.baslik} (${r.kategori})`, ms, requestId: r.id });
+      });
+    }
+    (Object.values(offersMap) as ServiceOffer[][]).flat().forEach((o) => {
+      const ms = toMillis(o.createdAt) || Date.now();
+      if (o.requestOwnerUid === user.uid) {
+        push({ id: 'dn_off_' + o.id, type: 'yeni_teklif', category: 'YENİ TEKLİF', icon: '💰', badgeColor: 'bg-emerald-600', title: `${o.esnafIsyeri} talebinize ${o.fiyat} TL teklif verdi${o.requestTitle ? `: ${o.requestTitle}` : ''}`, ms, requestId: o.requestId });
+      }
+      if (o.esnafUid === user.uid && o.status === 'accepted') {
+        push({ id: 'dn_acc_' + o.id, type: 'teklif_kabul', category: 'TEKLİF KABUL', icon: '✅', badgeColor: 'bg-blue-600', title: `Teklifiniz kabul edildi${o.requestTitle ? `: ${o.requestTitle}` : ''}. Müşteriyle iletişime geçin.`, ms: toMillis(o.acceptedAt) || ms, requestId: o.requestId });
+      }
+    });
+    return list.sort((a, b) => b.ms - a.ms).slice(0, 40);
+  }, [user?.uid, profile, serviceRequests, offersMap, notifSeenAt, readDerivedIds]);
+
+  const allNotifications = useMemo(() => [...derivedNotifications, ...notifications], [derivedNotifications, notifications]);
+  const unreadNotifCount = useMemo(() => allNotifications.filter((n: any) => !n.read).length, [allNotifications]);
+
+  // Yeni okunmamış bildirim geldiğinde kısa uyarı göster
+  const prevDerivedUnreadRef = useRef<number | null>(null);
+  const derivedUnreadCount = derivedNotifications.filter((n: any) => !n.read).length;
+  useEffect(() => {
+    if (prevDerivedUnreadRef.current !== null && derivedUnreadCount > prevDerivedUnreadRef.current) {
+      showToast('🔔 Yeni bildiriminiz var');
+    }
+    prevDerivedUnreadRef.current = derivedUnreadCount;
+  }, [derivedUnreadCount]);
+
+  const handleMarkAllNotificationsRead = () => {
+    const now = Date.now();
+    setNotifSeenAt(now);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (user) {
+      updateDoc(doc(db, 'users', user.uid), { notifSeenAt: now }).catch(() => {});
+      setProfile((prev) => (prev ? { ...prev, notifSeenAt: now } : prev));
+    }
+    showToast('Tüm bildirimler okundu olarak işaretlendi!');
+  };
+
+  const handleOpenDerivedNotification = (n: any) => {
+    setReadDerivedIds((prev) => (prev.includes(n.id) ? prev : [...prev, n.id]));
+    const req = serviceRequests.find((r) => r.id === n.requestId);
+    setActiveTab('services');
+    setServiceViewMode('requests');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (req) setShowRequestDetail(req);
+  };
+
+  // ── TALEP OLUŞTURMA: tüm akışlar bu tek fonksiyonu kullanır (talep sahibi uid'si ile kaydedilir) ──
+  const createServiceRequest = async (data: {
+    baslik: string;
+    aciklama: string;
+    kategori: string;
+    altKategori?: string;
+    adres?: string;
+    telefon?: string;
+    urgent?: boolean;
+    fotolar?: string[];
+  }): Promise<string | null> => {
+    if (!user) {
+      showToast('Talep açmak için önce giriş yapmalısınız.', true);
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return null;
+    }
+    const kategoriId = resolveKategoriId(data.kategori, data.altKategori, MAIN_SERVICE_CATEGORIES) || '';
+    const address = (data.adres || '').trim() || 'Mutlular Mahallesi';
+    try {
+      const ref = await addDoc(collection(db, 'service_requests'), {
+        uid: user.uid,
+        authorName: profile?.name || user.displayName || 'Mahalle Sakini',
+        baslik: data.baslik,
+        aciklama: data.aciklama,
+        kategori: data.kategori,
+        altKategori: data.altKategori || '',
+        kategoriId,
+        adres: address,
+        konum: address,
+        urgent: Boolean(data.urgent),
+        fotolar: data.fotolar || [],
+        status: 'open',
+        offerCount: 0,
+        createdAt: serverTimestamp()
+      });
+      const typedPhone = (data.telefon || '').trim();
+      if (typedPhone && !profile?.telefon) {
+        updateDoc(doc(db, 'users', user.uid), { telefon: typedPhone }).catch(() => {});
+        setProfile((prev) => (prev ? { ...prev, telefon: typedPhone } : prev));
+      }
+      return ref.id;
+    } catch (e: any) {
+      showToast('Talep oluşturulamadı: ' + (e?.code === 'permission-denied' ? 'yetki hatası, çıkış yapıp tekrar giriş yapın' : (e?.message || 'bilinmeyen hata')), true);
+      return null;
+    }
+  };
+
+  // ── TEKLİFİ KABUL ET (yalnızca talep sahibi) ──
+  const handleAcceptOffer = async (req: ServiceRequest, offer: ServiceOffer) => {
+    if (!user || !req.id || !offer.id) return;
+    if (!req.uid || req.uid !== user.uid) {
+      showToast('Teklifi yalnızca talep sahibi kabul edebilir.', true);
+      return;
+    }
+    if (req.status && req.status !== 'open') {
+      showToast('Bu talep için zaten bir teklif kabul edilmiş.', true);
+      return;
+    }
+    const siblings = (offersMap[req.id] || []).filter((o) => o.id && o.id !== offer.id);
+    let musteriTelefon = (profile?.telefon || '').trim();
+    if (musteriTelefon.replace(/\D/g, '').length < 10) {
+      const typed = window.prompt('Ustanın sizi arayabilmesi için telefon numaranızı yazın (yalnızca kabul ettiğiniz usta görür):', '') || '';
+      if (typed.replace(/\D/g, '').length < 10) {
+        showToast('Geçerli bir telefon numarası girmeden teklif kabul edilemez.', true);
+        return;
+      }
+      musteriTelefon = typed.trim();
+      updateDoc(doc(db, 'users', user.uid), { telefon: musteriTelefon }).catch(() => {});
+      setProfile((prev) => (prev ? { ...prev, telefon: musteriTelefon } : prev));
+    }
+    setAcceptingOfferId(offer.id);
+    try {
+      await runTransaction(db, async (tx) => {
+        const reqRef = doc(db, 'service_requests', req.id!);
+        const reqSnap = await tx.get(reqRef);
+        if (!reqSnap.exists()) throw new Error('Talep bulunamadı.');
+        const st = reqSnap.data().status;
+        if (st && st !== 'open') throw new Error('Bu talep için zaten bir teklif kabul edilmiş.');
+        tx.update(doc(db, 'offers', offer.id!), { status: 'accepted', acceptedAt: serverTimestamp(), musteriTelefon, musteriAdi: profile?.name || user.displayName || 'Mahalle Sakini' });
+        siblings.forEach((o) => tx.update(doc(db, 'offers', o.id!), { status: 'rejected' }));
+        tx.update(reqRef, { status: 'in_progress', acceptedOfferId: offer.id });
+      });
+      setShowRequestDetail((prev) => (prev && prev.id === req.id ? { ...prev, status: 'in_progress', acceptedOfferId: offer.id } : prev));
+      showToast(`${offer.esnafIsyeri} teklifi kabul edildi. Usta bilgilendirildi ✅`);
+    } catch (e: any) {
+      showToast('Teklif kabul edilemedi: ' + (e?.code === 'permission-denied' ? 'yetki hatası' : (e?.message || 'bilinmeyen hata')), true);
+    } finally {
+      setAcceptingOfferId(null);
+    }
   };
 
   const handleDeleteNewsItem = async (id?: string, title?: string) => {
@@ -3172,47 +3362,20 @@ export default function App() {
       showToast('Lütfen ihtiyacınızın detaylarını belirtiniz.', true);
       return;
     }
-    try {
-      const newReq: ServiceRequest = {
-        id: `req_${Date.now()}`,
-        baslik: `${armutSelectedSub} (${armutTiming})`,
-        aciklama: armutDetail.trim(),
-        kategori: armutSelectedCat,
-        altKategori: armutSelectedSub,
-        adres: armutAddress.trim() || 'Mutlular Mahallesi',
-        konum: armutAddress.trim() || 'Mutlular Mahallesi',
-        status: 'open',
-        authorName: profile?.name || 'Mahalle Sakini',
-        telefon: armutPhone.trim() || profile?.telefon || '',
-        authorPhone: armutPhone.trim() || profile?.telefon || '',
-        urgent: armutTiming.toLowerCase().includes('hemen') || armutTiming.toLowerCase().includes('acil'),
-        offerCount: 0,
-        fotolar: ['https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80'],
-        createdAt: new Date(),
-      };
-
-      if (db) {
-        await addDoc(collection(db, 'service_requests'), {
-          baslik: newReq.baslik,
-          aciklama: newReq.aciklama,
-          kategori: newReq.kategori,
-          altKategori: newReq.altKategori,
-          konum: newReq.konum,
-          status: 'open',
-          authorName: newReq.authorName,
-          authorPhone: newReq.authorPhone,
-          urgent: newReq.urgent,
-          createdAt: new Date(),
-        });
-      }
-
-      setServiceRequests([newReq, ...serviceRequests]);
-      setShowArmutWizard(false);
-      setServiceViewMode('requests');
-      showToast('Hizmet talebiniz başarıyla açıldı! Onaylı ustalardan teklifler toplanacak. 👍');
-    } catch (err: any) {
-      showToast('Talep oluşturulurken hata: ' + err.message, true);
-    }
+    const newId = await createServiceRequest({
+      baslik: `${armutSelectedSub} (${armutTiming})`,
+      aciklama: armutDetail.trim(),
+      kategori: armutSelectedCat,
+      altKategori: armutSelectedSub,
+      adres: armutAddress,
+      telefon: armutPhone,
+      urgent: armutTiming.toLowerCase().includes('hemen') || armutTiming.toLowerCase().includes('acil'),
+      fotolar: ['https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80']
+    });
+    if (!newId) return;
+    setShowArmutWizard(false);
+    setServiceViewMode('requests');
+    showToast('Hizmet talebiniz açıldı! Kategorinize uygun ustalara bildirim gitti, teklifler size gelecek. 👍');
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -3267,6 +3430,30 @@ export default function App() {
 
   // Submit Offer
   const handleGiveOffer = async (requestId: string, price: number, message: string, duration: string) => {
+    const targetReq = serviceRequests.find((r) => r.id === requestId);
+    if (targetReq) {
+      if (user && targetReq.uid && targetReq.uid === user.uid) {
+        showToast('Kendi talebinize teklif veremezsiniz.', true);
+        return;
+      }
+      if (targetReq.status && targetReq.status !== 'open') {
+        showToast('Bu talep artık teklif almıyor.', true);
+        return;
+      }
+      if (user && (offersMap[requestId] || []).some((o) => o.esnafUid === user.uid)) {
+        showToast('Bu talebe zaten teklif verdiniz.', true);
+        return;
+      }
+      if (profile?.role === 'esnaf' && !requestMatchesEsnaf(targetReq, profile, MAIN_SERVICE_CATEGORIES)) {
+        showToast('Bu talep hizmet kategoriniz dışında.', true);
+        return;
+      }
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      showToast('Lütfen geçerli bir teklif fiyatı girin.', true);
+      return;
+    }
+
     const effectiveCredits = profile?.credits ?? (demoRole === 'esnaf' ? 8 : 0);
     if (effectiveCredits < 1) {
       showToast('Yetersiz kredi bakiyesi! Lütfen WhatsApp ile kredi yükleyin.', true);
@@ -3286,28 +3473,33 @@ export default function App() {
           const esnafDoc = await tx.get(esnafRef);
           const reqDoc = await tx.get(requestRef);
 
-          if (esnafDoc.exists()) {
-            const curCred = esnafDoc.data()?.credits || 0;
-            if (curCred < 1) throw new Error('Yetersiz kredi!');
-            tx.update(esnafRef, { credits: curCred - 1 });
+          if (!reqDoc.exists()) throw new Error('Talep bulunamadı (silinmiş olabilir).');
+          const reqData = reqDoc.data();
+          if (reqData.status && reqData.status !== 'open') throw new Error('Bu talep artık teklif almıyor.');
+          if (!esnafDoc.exists()) throw new Error('Esnaf kaydınız bulunamadı.');
 
-            tx.set(creditLogRef, {
-              uid: user.uid,
-              isyeri: profile.isyeri || profile.name || 'Esnaf',
-              type: 'offer_submit',
-              amount: -1,
-              balanceAfter: curCred - 1,
-              relatedRequestId: requestId,
-              relatedOfferId: offerRef.id,
-              createdAt: serverTimestamp()
-            });
-          }
+          const curCred = esnafDoc.data()?.credits || 0;
+          if (curCred < 1) throw new Error('Yetersiz kredi!');
+          tx.update(esnafRef, { credits: curCred - 1 });
+
+          tx.set(creditLogRef, {
+            uid: user.uid,
+            isyeri: profile.isyeri || profile.name || 'Esnaf',
+            type: 'offer_submit',
+            amount: -1,
+            balanceAfter: curCred - 1,
+            relatedRequestId: requestId,
+            relatedOfferId: offerRef.id,
+            createdAt: serverTimestamp()
+          });
 
           tx.set(offerRef, {
             requestId,
+            requestOwnerUid: reqData.uid || '',
+            requestTitle: reqData.baslik || '',
             esnafUid: user.uid,
             esnafIsyeri: profile.isyeri || profile.name || 'Esnaf',
-            esnafTelefon: profile.telefon || '05321112233',
+            esnafTelefon: profile.telefon || '',
             fiyat: price,
             mesaj: message,
             tahminiSure: duration,
@@ -3316,12 +3508,10 @@ export default function App() {
             createdAt: serverTimestamp()
           });
 
-          if (reqDoc.exists()) {
-            tx.update(requestRef, { offerCount: increment(1) });
-          }
+          tx.update(requestRef, { offerCount: increment(1) });
         });
 
-        setProfile((prev) => prev ? { ...prev, credits: (prev.credits || 1) - 1 } : null);
+        setProfile((prev) => prev ? { ...prev, credits: Math.max(0, (prev.credits || 1) - 1) } : null);
       } else {
         // Mock state update if running in demo mode
         const newOffer: ServiceOffer = {
@@ -3350,9 +3540,9 @@ export default function App() {
       }
 
       setShowOfferModal(null);
-      showToast('Teklifiniz başarıyla iletildi! (1 Kredi düşüldü) 🛠️');
+      showToast('Teklifiniz talep sahibine iletildi! (1 Kredi düşüldü) 🛠️');
     } catch (err: any) {
-      showToast(err.message, true);
+      showToast(err?.code === 'permission-denied' ? 'Teklif gönderilemedi: yetki hatası (usta hesabıyla giriş yaptığınızdan emin olun)' : (err?.message || 'Teklif gönderilemedi'), true);
     }
   };
 
@@ -3930,6 +4120,11 @@ export default function App() {
         isEditor={isUserEditor}
         pendingTipsCount={pendingTipsCount}
         onOpenAdminPanel={() => setShowAdminPanelModal(true)}
+        unreadNotifCount={unreadNotifCount}
+        onOpenNotifications={() => {
+          setActiveTab('notifications');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
       />
 
       {activeTab === 'market' && (
@@ -5664,6 +5859,15 @@ export default function App() {
               )
             : serviceRequests;
 
+          // Usta için "Bana uygun" filtresi: yalnızca kendi kategorisindeki, açık talepler
+          const isEsnafViewer = profile?.role === 'esnaf';
+          const uygunRequests = serviceRequests.filter(r =>
+            (!r.status || r.status === 'open') &&
+            (!user || r.uid !== user.uid) &&
+            requestMatchesEsnaf(r, profile, MAIN_SERVICE_CATEGORIES)
+          );
+          const visibleRequests = (isEsnafViewer && requestScope === 'uygun') ? uygunRequests : searchMatchingRequests;
+
           // Drill-down selected category
           const activeExpandedCategory = activeExpandedCatId 
             ? MAIN_SERVICE_CATEGORIES.find(c => c.id === activeExpandedCatId) 
@@ -6328,8 +6532,35 @@ export default function App() {
                     </button>
                   </div>
 
+                  {isEsnafViewer && (
+                    <div className="flex items-center gap-2 bg-white rounded-2xl p-2 border border-slate-200/90">
+                      <button
+                        type="button"
+                        onClick={() => setRequestScope('uygun')}
+                        className={`flex-1 text-xs font-black px-3 py-2 rounded-xl transition-all cursor-pointer ${requestScope === 'uygun' ? 'bg-orange-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                      >
+                        🎯 Bana Uygun ({uygunRequests.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRequestScope('tumu')}
+                        className={`flex-1 text-xs font-black px-3 py-2 rounded-xl transition-all cursor-pointer ${requestScope === 'tumu' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                      >
+                        Tüm Talepler ({serviceRequests.length})
+                      </button>
+                    </div>
+                  )}
+
+                  {visibleRequests.length === 0 && (
+                    <div className="bg-white rounded-3xl p-6 border border-slate-200/90 text-center text-xs text-slate-500">
+                      {isEsnafViewer && requestScope === 'uygun'
+                        ? 'Şu an kategorinize uygun açık talep yok. Yeni talep geldiğinde bildirim alacaksınız.'
+                        : 'Henüz açık talep yok.'}
+                    </div>
+                  )}
+
                   <div id="service-request-list" className="space-y-3.5">
-                    {searchMatchingRequests.map((req, idx) => {
+                    {visibleRequests.map((req, idx) => {
                       const isAuthor = Boolean(
                         (user && req.uid && user.uid === req.uid) ||
                         (user && profile?.name && req.authorName === profile.name) ||
@@ -6377,7 +6608,7 @@ export default function App() {
                                 </button>
                               )}
                               <span className="text-xs font-black text-orange-600 bg-orange-50 px-2.5 py-1 rounded-xl border border-orange-100">
-                                {offersMap[req.id || '']?.length || req.offerCount || 0} Teklif
+                                {Math.max(offersMap[req.id || '']?.length || 0, req.offerCount || 0)} Teklif
                               </span>
                             </div>
                           </div>
@@ -6410,7 +6641,9 @@ export default function App() {
                                   <Edit3 className="w-3.5 h-3.5 text-amber-600" /> Talebi Düzenle
                                 </button>
                               )}
-                              {demoRole === 'esnaf' && (
+                              {demoRole === 'esnaf' && isActive && !isAuthor && req.status !== 'in_progress' &&
+                                !(user && (offersMap[req.id || ''] || []).some(o => o.esnafUid === user.uid)) &&
+                                requestMatchesEsnaf(req, profile, MAIN_SERVICE_CATEGORIES) && (
                                 <button
                                   onClick={() => setShowOfferModal(req)}
                                   className="bg-amber-500 hover:bg-amber-600 text-amber-950 font-black text-xs px-3.5 py-2 rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
@@ -6422,7 +6655,7 @@ export default function App() {
                                 onClick={() => setShowRequestDetail(req)}
                                 className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
                               >
-                                Teklifleri Gör ({offersMap[req.id || '']?.length || req.offerCount || 0})
+                                {isAuthor ? 'Teklifleri Gör' : 'Detay'} ({Math.max(offersMap[req.id || '']?.length || 0, req.offerCount || 0)})
                               </button>
                             </div>
                           </div>
@@ -7494,10 +7727,7 @@ export default function App() {
               </div>
 
               <button
-                onClick={() => {
-                  setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-                  showToast('Tüm bildirimler okundu olarak işaretlendi!');
-                }}
+                onClick={handleMarkAllNotificationsRead}
                 className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
               >
                 Tümünü Okundu Say
@@ -7527,13 +7757,15 @@ export default function App() {
 
             {/* Bildirim Listesi */}
             <div className="bg-white rounded-3xl border border-slate-200/80 divide-y divide-slate-100 overflow-hidden shadow-2xs">
-              {notifications
-                .filter(n => notifTab === 'tumu' || (notifTab === 'unread' && !n.read) || (notifTab === 'duyuru' && n.type === 'duyuru'))
-                .map((notif) => (
+              {allNotifications
+                .filter((n: any) => notifTab === 'tumu' || (notifTab === 'unread' && !n.read) || (notifTab === 'duyuru' && n.type === 'duyuru'))
+                .map((notif: any) => (
                   <div
                     key={notif.id}
                     onClick={() => {
-                      if (notif.type === 'sondakika') {
+                      if (notif.type === 'yeni_talep' || notif.type === 'yeni_teklif' || notif.type === 'teklif_kabul') {
+                        handleOpenDerivedNotification(notif);
+                      } else if (notif.type === 'sondakika') {
                         if (newsItems[0]) handleOpenNewsDetail(newsItems[0]);
                       } else if (notif.type === 'anket') {
                         setActiveTab('meclis');
@@ -9125,38 +9357,86 @@ export default function App() {
                 </div>
               )}
 
-              <div className="border-t border-gray-100 pt-3">
-                <h4 className="font-black text-xs text-gray-900 mb-2 flex items-center gap-1.5">
-                  <Coins className="w-4 h-4 text-amber-500" /> Esnaflardan Gelen Teklifler ({offersMap[showRequestDetail.id || '']?.length || 0})
-                </h4>
+              {(() => {
+                const reqId = showRequestDetail.id || '';
+                const detailOffers = offersMap[reqId] || [];
+                const isOwnerStrict = Boolean(user && showRequestDetail.uid && user.uid === showRequestDetail.uid);
+                const isOpen = !showRequestDetail.status || showRequestDetail.status === 'open';
+                const offerTotal = Math.max(detailOffers.length, showRequestDetail.offerCount || 0);
+                const statusLabel: Record<string, string> = { pending: 'Beklemede', accepted: 'Kabul edildi', rejected: 'Reddedildi' };
+                const statusColor: Record<string, string> = { pending: 'bg-amber-100 text-amber-800', accepted: 'bg-emerald-100 text-emerald-800', rejected: 'bg-slate-100 text-slate-500' };
 
-                <div className="space-y-2">
-                  {(offersMap[showRequestDetail.id || ''] || []).map((off, i) => (
-                    <div key={i} className="p-3 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-xs text-gray-900">{off.esnafIsyeri}</span>
-                        <span className="font-black text-sm text-emerald-600">{off.fiyat} TL</span>
-                      </div>
-                      <p className="text-xs text-gray-600">{off.mesaj}</p>
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="text-[11px] text-gray-400">⏱️ {off.tahminiSure || 'Aynı Gün'}</span>
-                        <button
-                          onClick={() => openWhatsApp(off.esnafTelefon, `Merhaba ${off.esnafIsyeri}, verdiğiniz ${off.fiyat} TL'lik teklifi kabul etmek istiyorum.`)}
-                          className="bg-green-600 hover:bg-green-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" /> Kabul Et &amp; Yaz
-                        </button>
+                if (!isOwnerStrict && !detailOffers.length) {
+                  return (
+                    <div className="border-t border-gray-100 pt-3">
+                      <div className="p-4 bg-gray-50 rounded-2xl text-center text-xs text-gray-500">
+                        Bu talebe şu ana kadar {offerTotal} teklif verildi. Teklifleri yalnızca talep sahibi görür.
                       </div>
                     </div>
-                  ))}
+                  );
+                }
 
-                  {(!offersMap[showRequestDetail.id || ''] || offersMap[showRequestDetail.id || ''].length === 0) && (
-                    <div className="p-4 bg-gray-50 rounded-2xl text-center text-xs text-gray-400">
-                      Henüz esnaflardan teklif gelmedi. İlgili kategorideki ustalara bildirim iletildi.
+                return (
+                  <div className="border-t border-gray-100 pt-3">
+                    <h4 className="font-black text-xs text-gray-900 mb-2 flex items-center gap-1.5">
+                      <Coins className="w-4 h-4 text-amber-500" />
+                      {isOwnerStrict ? `Ustalardan Gelen Teklifler (${detailOffers.length})` : 'Verdiğiniz Teklif'}
+                    </h4>
+
+                    <div className="space-y-2">
+                      {detailOffers.map((off) => (
+                        <div key={off.id} className={`p-3 rounded-2xl border space-y-2 ${off.status === 'accepted' ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200/80'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-extrabold text-xs text-gray-900">{off.esnafIsyeri}</span>
+                            <span className="font-black text-sm text-emerald-600">{off.fiyat} TL</span>
+                          </div>
+                          <p className="text-xs text-gray-600">{off.mesaj}</p>
+                          <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] text-gray-400">⏱️ {off.tahminiSure || 'Aynı Gün'}</span>
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${statusColor[off.status] || statusColor.pending}`}>{statusLabel[off.status] || 'Beklemede'}</span>
+                            </div>
+
+                            {isOwnerStrict && off.status === 'pending' && isOpen && (
+                              <button
+                                disabled={acceptingOfferId === off.id}
+                                onClick={() => handleAcceptOffer(showRequestDetail, off)}
+                                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-black px-3 py-1.5 rounded-xl shadow-sm cursor-pointer"
+                              >
+                                ✅ Teklifi Kabul Et
+                              </button>
+                            )}
+
+                            {isOwnerStrict && off.status === 'accepted' && (
+                              <button
+                                onClick={() => openWhatsApp(off.esnafTelefon, `Merhaba ${off.esnafIsyeri}, "${showRequestDetail.baslik}" talebim için verdiğiniz ${off.fiyat} TL'lik teklifi kabul ettim.`)}
+                                className="bg-green-600 hover:bg-green-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm cursor-pointer"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" /> Ustaya Yaz
+                              </button>
+                            )}
+
+                            {!isOwnerStrict && off.status === 'accepted' && off.musteriTelefon && (
+                              <button
+                                onClick={() => openWhatsApp(off.musteriTelefon || '', `Merhaba ${off.musteriAdi || ''}, "${showRequestDetail.baslik}" talebiniz için teklifiniz kabul edildi. Ne zaman uygunsunuz?`)}
+                                className="bg-green-600 hover:bg-green-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm cursor-pointer"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" /> Müşteriye Yaz
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {isOwnerStrict && detailOffers.length === 0 && (
+                        <div className="p-4 bg-gray-50 rounded-2xl text-center text-xs text-gray-400">
+                          Henüz usta teklifi gelmedi. Kategorinize uygun ustalara bildirim gitti; teklif geldiğinde size bildirim gelecek.
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );
@@ -9196,39 +9476,28 @@ export default function App() {
                 onSubmit={async (e) => {
                   e.preventDefault();
 
-                  const newReq: ServiceRequest = {
-                    authorName: profile?.name || 'Mahalle Sakini',
-                    telefon: newServiceReqPhone || profile?.telefon || '05321112233',
-                    kategori: activeMainCat?.name || selectedServiceSector,
-                    altKategori: modalSubCatName || activeSubCat?.name,
+                  const newId = await createServiceRequest({
                     baslik: newServiceReqTitle.trim() || `${modalSubCatName || activeMainCat?.name} Talebi`,
                     aciklama: newServiceReqDesc.trim(),
-                    adres: newServiceReqAddress.trim() || 'Mutlular Mahallesi',
-                    status: 'open',
-                    offerCount: 0,
+                    kategori: activeMainCat?.name || selectedServiceSector,
+                    altKategori: modalSubCatName || activeSubCat?.name,
+                    adres: newServiceReqAddress,
+                    telefon: newServiceReqPhone,
+                    urgent: newServiceReqUrgent,
                     fotolar: newServiceReqPhoto ? [newServiceReqPhoto] : [
                       PHOTO_PRESETS.find(p => p.label.includes(activeSubCat?.name?.split(' ')[0] || ''))?.url ||
                       PHOTO_PRESETS.find(p => p.label.includes(activeMainCat?.shortTitle?.split(' ')[0] || ''))?.url ||
                       "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80"
-                    ],
-                    uid: user?.uid || 'sakin_1'
-                  };
-
-                  setServiceRequests([newReq, ...serviceRequests]);
-                  try {
-                    await addDoc(collection(db, 'service_requests'), {
-                      ...newReq,
-                      urgent: newServiceReqUrgent,
-                      createdAt: serverTimestamp()
-                    });
-                  } catch (_) {}
+                    ]
+                  });
+                  if (!newId) return;
 
                   setShowServiceModal(false);
                   setNewServiceReqTitle('');
                   setNewServiceReqDesc('');
                   setNewServiceReqPhoto('');
                   setNewServiceReqUrgent(false);
-                  showToast(`${activeMainCat?.name} (${modalSubCatName}) talebiniz yayınlandı! Mahalle ustalarına bildirim gitti 🛠️`);
+                  showToast(`${activeMainCat?.name} (${modalSubCatName}) talebiniz yayınlandı! Uygun ustalara bildirim gitti 🛠️`);
                 }}
                 className="space-y-4"
               >
@@ -11555,32 +11824,20 @@ export default function App() {
                     <button
                       type="button"
                       onClick={async () => {
-                        const newReq: ServiceRequest = {
-                          authorName: profile?.name || user?.displayName || 'Mahalle Sakini',
-                          telefon: armutPhone || profile?.telefon || '05330001122',
-                          kategori: armutSelectedCat,
-                          altKategori: armutSelectedSub,
+                        const newId = await createServiceRequest({
                           baslik: `${armutSelectedSub} (${armutTiming})`,
                           aciklama: armutDetail.trim() || `${armutSelectedCat} alanında hizmete ihtiyacım var.`,
+                          kategori: armutSelectedCat,
+                          altKategori: armutSelectedSub,
                           adres: armutAddress,
-                          status: 'open',
-                          offerCount: 0,
-                          fotolar: [
-                            'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80'
-                          ],
-                          uid: user?.uid || 'sakin_1'
-                        };
-
-                        setServiceRequests(prev => [newReq, ...prev]);
-                        try {
-                          await addDoc(collection(db, 'service_requests'), {
-                            ...newReq,
-                            createdAt: serverTimestamp()
-                          });
-                        } catch (_) {}
+                          telefon: armutPhone,
+                          urgent: armutTiming.toLowerCase().includes('hemen') || armutTiming.toLowerCase().includes('acil'),
+                          fotolar: ['https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80']
+                        });
+                        if (!newId) return;
 
                         setArmutStep(4);
-                        showToast('Hizmet talebiniz oluşturuldu! Mahalle ustaları bilgilendirildi. 👍');
+                        showToast('Hizmet talebiniz oluşturuldu! Uygun ustalara bildirim gitti. 👍');
                       }}
                       className="flex-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
                     >
