@@ -52,6 +52,20 @@ import {
   type SampleNewsItem
 } from './mockNeighborhoodData';
 import { MutlularAdminEditorPanel } from './MutlularAdminEditorPanel';
+import {
+  type ContentType,
+  type ContentKind,
+  type ParsedLink,
+  CONTENT_COLLECTIONS,
+  KIND_TO_TYPE,
+  buildContentUrl,
+  parseContentLink,
+  cleanedUrl,
+  getBase,
+  slugify
+} from './links';
+import { ShareStudio, type ShareItem } from './ShareStudio';
+import { SharedContentView, type SharedContent } from './SharedContentView';
 import { toEmbedUrl, cleanLiveUrl, EMPTY_LIVE, type LiveConfig } from './liveStream';
 import { resolveKategoriId, requestMatchesEsnaf, toMillis, timeAgoTr, ESNAF_TURLERI, DIGER_ALAN, cleanAreaName, customAreaToMainCat, isUstaProfile } from './serviceMatching';
 import {
@@ -937,242 +951,9 @@ export interface VerifiedMaster {
   servicesHighlight: string[];
 }
 
-export const VERIFIED_MASTERS: VerifiedMaster[] = [
-  {
-    id: 'master_mehmet_elektrik',
-    name: 'Mehmet Usta',
-    businessName: 'Mehmet Usta Elektrik Tesisatı & Arıza',
-    mainCategoryId: 'elektrik_aydinlatma_elektronik',
-    mainCategoryName: 'Elektrik & Aydınlatma',
-    subCategories: ['Elektrik Tesisatı', 'Arıza Tespiti ve Onarım', 'Kombi Elektrik Bağlantısı', 'Aydınlatma Sistemleri', 'Tadilat ve Montaj'],
-    phone: '05342223355',
-    whatsapp: '905342223355',
-    rating: 4.9,
-    reviewCount: 128,
-    experience: '18 Yıllık Mahalle Elektrikçisi',
-    address: 'Mehmet Akif Mah. / Osmangazi',
-    badge: '7/24 Ulaşılabilir',
-    avatar: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=600&q=80',
-    desc: 'Mahallemizin onaylı elektrik ustası. Ev ve iş yeri tesisatı, avize/LED montajı, sigorta kutusu değişimi, kombi elektrik hattı ve acil arıza tamiri.',
-    servicesHighlight: ['Elektrik Tesisatı', 'Arıza Tespiti ve Onarım', 'Kombi Elektrik Bağlantısı', 'Aydınlatma Sistemleri', 'Tadilat ve Montaj']
-  },
-  {
-    id: 'master_ali_tesisat',
-    name: 'Ali Tesisat',
-    businessName: 'Ali Usta Su Tesisatı & Doğalgaz',
-    mainCategoryId: 'tesisat_su_isitma',
-    mainCategoryName: 'Su Tesisatı & Doğalgaz',
-    subCategories: ['Su Tesisatı & Doğalgaz', 'Kırmadan Kaçak Tespiti', 'Tıkalı Gider Açma', 'Petek & Kombi Bakımı'],
-    phone: '05321112244',
-    whatsapp: '905321112244',
-    rating: 4.8,
-    reviewCount: 96,
-    experience: '15 Yıllık Tesisat & Doğalgaz Ustası',
-    address: 'Mehmet Akif Mah. / Osmangazi',
-    badge: 'Cihazla Kırmadan Tespit',
-    avatar: 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80',
-    desc: 'Termal kamera ve akustik dinleme ile kırmadan su kaçağı bulma, doğalgaz proje/montaj, tıkalı mutfak/banyo gideri açma.',
-    servicesHighlight: ['Su Kaçağı Bulma', 'Tıkalı Gider Açma', 'Doğalgaz Tesisatı', 'Batarya Montajı']
-  },
-  {
-    id: 'master_berk_boya',
-    name: 'Berk Boya',
-    businessName: 'Berk Usta Boya & Badana Dekorasyon',
-    mainCategoryId: 'ev_tadilat_boya_marangoz',
-    mainCategoryName: 'Boya & Badana',
-    subCategories: ['Boya Badana', 'Alçı & Kartonpiyer', 'Duvar Kağıdı', 'Dış Cephe'],
-    phone: '05363334466',
-    whatsapp: '905363334466',
-    rating: 4.7,
-    reviewCount: 73,
-    experience: '12 Yıllık Boya & Dekorasyon Deneyimi',
-    address: 'Mehmet Akif Mah. / Osmangazi',
-    badge: 'Temiz & Eşyaları Koruyarak Teslim',
-    avatar: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?auto=format&fit=crop&w=600&q=80',
-    desc: '1 günde temiz daire boyama, silinebilir kaliteli boyalar, zemin ve mobilya maskeleme garantisi.',
-    servicesHighlight: ['Daire Boyama', 'Alçı Tamiratı', 'Eşya Koruma', 'Silinebilir Boya']
-  },
-  {
-    id: 'master_temizlik_hanim',
-    name: 'Temizlik Hanım',
-    businessName: 'Temizlik Hanım Ev & Ofis Temizliği',
-    mainCategoryId: 'temizlik_yikama_ilaclama',
-    mainCategoryName: 'Ev & Ofis Temizliği',
-    subCategories: ['Ev & Ofis Temizliği', 'Koltuk & Yatak Yıkama', 'Boş Daire Taşınma Temizliği', 'İnşaat Sonrası'],
-    phone: '05374445577',
-    whatsapp: '905374445577',
-    rating: 4.9,
-    reviewCount: 54,
-    experience: '8 Yıllık Hijyen & Temizlik Ekibi',
-    address: 'Mehmet Akif Mah. / Osmangazi',
-    badge: 'Güvenilir & Referanslı',
-    avatar: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=600&q=80',
-    desc: 'Detaylı ev temizliği, taşınma öncesi boş ev temizliği, profesyonel buharlı koltuk ve yatak yıkama.',
-    servicesHighlight: ['Ev Temizliği', 'Buharlı Koltuk Yıkama', 'Cam & Balkon', 'Taşınma Temizliği']
-  },
-  {
-    id: 'master_suheyla',
-    name: 'Süheyla Hanım',
-    businessName: 'Süheyla Butik Pasta & Organizasyon',
-    mainCategoryId: 'dugun_organizasyon',
-    mainCategoryName: 'Düğün, Nişan & Doğum Günü',
-    subCategories: ['Pasta & Tatlı Siparişi', 'Masa & Mekan Süsleme', 'Catering & İkramlıklar'],
-    phone: '05327778811',
-    whatsapp: '905327778811',
-    rating: 4.9,
-    reviewCount: 48,
-    experience: '8 Yıllık Mahalle Butik Pastacısı',
-    address: 'Mutlular Mah. Gül Sokak No: 14',
-    badge: '👑 Onaylı Butik Pastacı',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
-    desc: 'Katlı nişan pastası, 1 yaş ve çocuk konsept yaş pastaları, cupcake, şeker hamurlu kurabiyeler ve nişan masası süslemeleri.',
-    servicesHighlight: ['Nişan Pastası', 'Doğum Günü Pastası', 'Cupcake & Kurabiye', 'Masa Süsleme']
-  },
-  {
-    id: 'master_ahmet_organizasyon',
-    name: 'Ahmet Bey',
-    businessName: 'Mutlular Masa, Sandalye & Ekipman Kiralama',
-    mainCategoryId: 'dugun_organizasyon',
-    mainCategoryName: 'Düğün, Nişan & Doğum Günü',
-    subCategories: ['Masa Sandalye Kiralama', 'Ses Sistemi & DJ / Müzik', 'Masa & Mekan Süsleme'],
-    phone: '05338889922',
-    whatsapp: '905338889922',
-    rating: 5.0,
-    reviewCount: 64,
-    experience: '15 Yıllık Organizasyon & Kiralama',
-    address: 'Mutlular Cad. No: 42 (Pazar Yeri Karşısı)',
-    badge: '⚡ Hızlı Nakliye & Kurulum',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-    desc: 'Ev bahçesi, sokak veya salon cemiyetleri için beyaz tiffany sandalyeler, yuvarlak banket masalar, kokteyl masaları ve ses sistemi.',
-    servicesHighlight: ['Tiffany Sandalye', 'Bistro Kokteyl Masası', 'Banket Masa', 'Ses Sistemi & Mikrofon']
-  },
-  {
-    id: 'master_zeynep_abiye',
-    name: 'Zeynep Hanım',
-    businessName: 'Zeynep Moda Evi & Abiye Kiralama',
-    mainCategoryId: 'dugun_organizasyon',
-    mainCategoryName: 'Düğün, Nişan & Doğum Günü',
-    subCategories: ['Abiye & Kıyafet Kiralama', 'Terzi & Kıyafet Tadilatı'],
-    phone: '05359990033',
-    whatsapp: '905359990033',
-    rating: 4.8,
-    reviewCount: 36,
-    experience: '10 Yıllık Moda & Dikim Evi',
-    address: 'Mutlular Çınar Meydanı No: 8/B',
-    badge: '✨ Kuru Temizlemeli Teslim',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
-    desc: 'Söz, nişan, mezuniyet ve düğün davetleri için tasarım abiyeler, kına kaftanları, bindallı modelleri ve vücuda özel prova tadilatı.',
-    servicesHighlight: ['Nişan Abiyesi', 'Kına Kaftanı & Bindallı', 'Tadilat & Beden Ayarı', 'Aksesuar Temini']
-  },
-  {
-    id: 'master_masal_susleme',
-    name: 'Derya Hanım',
-    businessName: 'Masal Organizasyon & Konsept Süsleme',
-    mainCategoryId: 'dugun_organizasyon',
-    mainCategoryName: 'Düğün, Nişan & Doğum Günü',
-    subCategories: ['Masa & Mekan Süsleme', 'Fotoğraf & Video Çekimi'],
-    phone: '05391234567',
-    whatsapp: '905391234567',
-    rating: 4.9,
-    reviewCount: 41,
-    experience: '7 Yıllık Etkinlik Tasarımcısı',
-    address: 'Mutlular Mah. Bahar Sokak No: 3',
-    badge: '🎈 Trend Konsept Tasarım',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-    desc: 'Nişan arka fon tagı, ışıklı harfler, organik balon zincirleri, pleksi isimlikler, şamdan ve çiçek aranjmanları.',
-    servicesHighlight: ['Nişan Masası Tagı', 'Işıklı Rakam & Harf', 'Balon Kemeri', 'Fotoğraf Çekimi']
-  },
-  {
-    id: 'master_mustafa_tesisat',
-    name: 'Mustafa Usta',
-    businessName: 'Mutlular Su Tesisatı & Termal Kaçak Tespiti',
-    mainCategoryId: 'tesisat_su_isitma',
-    mainCategoryName: 'Tesisat, Su & Isıtma',
-    subCategories: ['Su Kaçağı & Tıkalı Gider Açma', 'Musluk, Batarya & Sifon Tamiri', 'Kombi Bakımı & Petek Temizliği'],
-    phone: '05321112244',
-    whatsapp: '905321112244',
-    rating: 4.9,
-    reviewCount: 88,
-    experience: '22 Yıllık Usta Öğretici',
-    address: 'Mutlular Mah. Papatya Sokak No: 5',
-    badge: '🔍 Kırmadan Cihazla Tespit',
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=200&q=80',
-    desc: 'Akustik dinleme ve termal kamera ile kırmadan su kaçağı bulma, robotla tıkalı lavabo/tuvalet açma, batarya değişimi ve petek temizleme.',
-    servicesHighlight: ['Kırmadan Kaçak Tespiti', 'Tıkalı Gider Açma', 'Batarya Montajı', 'Petek Temizliği']
-  },
-  {
-    id: 'master_hasan_elektrik',
-    name: 'Hasan Usta',
-    businessName: 'Işık Elektrik & Aydınlatma Servisi',
-    mainCategoryId: 'elektrik_aydinlatma_elektronik',
-    mainCategoryName: 'Elektrik, Aydınlatma & Cihaz',
-    subCategories: ['Elektrik Arızası & Sigorta Değişimi', 'Avize Montajı & LED Aydınlatma', 'TV, Çanak Anten & İnternet Kablosu'],
-    phone: '05342223355',
-    whatsapp: '905342223355',
-    rating: 4.9,
-    reviewCount: 72,
-    experience: '18 Yıllık Mahalle Elektrikçisi',
-    address: 'Mutlular Ana Cadde No: 31 (Cami Yanı)',
-    badge: '⚡ 7/24 Acil Müdahale',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80',
-    desc: 'Ev sigorta atması tamiri, şerit LED ve avize montajı, zayıf akım, internet kablosu çekimi ve merkezi uydu çanak ayarı.',
-    servicesHighlight: ['Sigorta Arızası', 'Avize Montajı', 'İnternet Kablolama', 'Çanak Anten Ayarı']
-  },
-  {
-    id: 'master_murat_boya',
-    name: 'Murat Usta',
-    businessName: 'Gökkuşağı Boya, Badana & Tadilat',
-    mainCategoryId: 'ev_tadilat_boya_marangoz',
-    mainCategoryName: 'Ev Tadilat, Boya & Marangoz',
-    subCategories: ['Boya Badana, Alçı & Duvar Kağıdı', 'Mobilya Montaj & Marangoz', 'Fayans, Seramik & Banyo Tadilatı'],
-    phone: '05363334466',
-    whatsapp: '905363334466',
-    rating: 5.0,
-    reviewCount: 56,
-    experience: '16 Yıllık Boya & Dekorasyon Ustası',
-    address: 'Mutlular Mah. Karanfil Sokak No: 11',
-    badge: '🎨 Eşyaları Koruyarak Boyama',
-    avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=200&q=80',
-    desc: 'Bütün yerleri ve mobilyaları naylonla koruyarak 1 günde temiz daire boyama, tavan alçısı, çatlak tamiri ve kapı boyama.',
-    servicesHighlight: ['1 Günde Temiz Boya', 'Alçı & Çatlak Onarımı', 'Eşya Koruma Örtüsü', 'Silinebilir Boya']
-  },
-  {
-    id: 'master_gulsen_temizlik',
-    name: 'Gülşen Hanım',
-    businessName: 'Pak Ev & Buharlı Koltuk / Halı Yıkama',
-    mainCategoryId: 'temizlik_yikama_ilaclama',
-    mainCategoryName: 'Temizlik, Yıkama & İlaçlama',
-    subCategories: ['Koltuk, Yatak & Halı Yıkama', 'Ev & Boş Daire Temizliği'],
-    phone: '05374445577',
-    whatsapp: '905374445577',
-    rating: 4.8,
-    reviewCount: 42,
-    experience: '9 Yıllık Temizlik Şirketi Sahibi',
-    address: 'Mutlular Mah. Zambak Sokak No: 7',
-    badge: '🌿 Doğal / Antialerjik Ürünler',
-    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=200&q=80',
-    desc: 'Yerinde vakumlu buharlı koltuk, köşe takımı ve yatak yıkama; taşınma öncesi boş daire ve inşaat sonrası detaylı temizlik hizmeti.',
-    servicesHighlight: ['Buharlı Koltuk Yıkama', 'Boş Daire Temizliği', 'Yatak Mite Temizliği', 'Cam & Çerçeve']
-  },
-  {
-    id: 'master_ali_cilingir',
-    name: 'Ali Usta',
-    businessName: 'Güven 7/24 Çilingir & Kamyonet Nakliyat',
-    mainCategoryId: 'nakliyat_cilingir_yardim',
-    mainCategoryName: 'Nakliyat, Çilingir & Acil Servis',
-    subCategories: ['7/24 Çilingir & Kilit Değişimi', 'Şehir İçi Kamyonet & Parça Eşya'],
-    phone: '05385556688',
-    whatsapp: '905385556688',
-    rating: 5.0,
-    reviewCount: 95,
-    experience: '20 Yıllık Güvenilir Çilingir',
-    address: 'Mutlular Merkez No: 18 (Muhtarlık Yanı)',
-    badge: '⏱️ 15 Dakikada Adrese Varış',
-    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=200&q=80',
-    desc: 'Kapıda kalan komşularımıza hasarsız kapı açma, çelik kapı göbek değişimi, emniyet kilidi montajı ve mahalle içi parça eşya kamyonet taşımacılığı.',
-    servicesHighlight: ['Hasarsız Kapı Açma', 'Çelik Kapı Göbeği', 'Kamyonet Nakliye', '7/24 Nöbetçi Usta']
-  }
-];
+// Rehberdeki usta listesi. Test ustaları kaldırıldı; gerçek ustalar kayıt olup onaylandıkça
+// yayın koleksiyonundan (FAZ 5: `artisans`) beslenecek. Şimdilik boş.
+export const VERIFIED_MASTERS: VerifiedMaster[] = [];
 
 export default function App() {
   // Current user state
@@ -1250,6 +1031,11 @@ export default function App() {
   const [mutlularTvActive, setMutlularTvActive] = useState<boolean>(false);
   const [vitrinIndex, setVitrinIndex] = useState<number>(0);
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(EMPTY_LIVE);
+  // FAZ 2: içerik bağlantıları ve paylaşım stüdyosu
+  const [deepLink, setDeepLink] = useState<ParsedLink | null>(null);
+  const [sharedContent, setSharedContent] = useState<SharedContent | null>(null);
+  const [shareItem, setShareItem] = useState<ShareItem | null>(null);
+  const resolvedLinkRef = useRef<string>('');
   const [tvMuted, setTvMuted] = useState<boolean>(true);
   const [tvLikes, setTvLikes] = useState<number>(184);
   const [hasLikedTv, setHasLikedTv] = useState<boolean>(false);
@@ -1436,6 +1222,14 @@ export default function App() {
   const [readDerivedIds, setReadDerivedIds] = useState<string[]>([]);
   const [requestScope, setRequestScope] = useState<'uygun' | 'tumu'>('uygun');
   const [acceptingOfferId, setAcceptingOfferId] = useState<string | null>(null);
+
+  // Gerçek (veritabanı kurallarının da tanıdığı) yönetici/editör. Önizleme rolleri burada sayılmaz.
+  const isRealStaff = Boolean(
+    user && (profile?.role === 'admin' || profile?.role === 'editor' || (user.email === 'yakupkrbck@gmail.com' && user.emailVerified))
+  );
+  // Vefat ilanı onay akışı: editör/yönetici için bekleyenler, kullanıcı için kendi bekleyen/reddedilen ilanları
+  const [pendingDeceased, setPendingDeceased] = useState<DeceasedItem[]>([]);
+  const [myDeceased, setMyDeceased] = useState<DeceasedItem[]>([]);
 
   // Ana kategoriler + topluluğun (ustaların "Diğer" ile) eklediği faaliyet alanları
   const ALL_SERVICE_CATEGORIES = useMemo(() => [
@@ -1674,7 +1468,7 @@ export default function App() {
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
 
   // Cenaze İlanları (Vefat & Taziye) State
-  const [deceasedList, setDeceasedList] = useState(DECEASED_ITEMS);
+  const [deceasedList, setDeceasedList] = useState<DeceasedItem[]>([]);
   const [currentDeceasedIdx, setCurrentDeceasedIdx] = useState(0);
   const [showNewDeceasedModal, setShowNewDeceasedModal] = useState(false);
   const [newDeceasedName, setNewDeceasedName] = useState('');
@@ -1761,6 +1555,81 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleUrlNews);
   }, [newsItems]);
 
+  // ── İÇERİK BAĞLANTILARI (FAZ 2A): /{tür}/{slug}--{id} veya ?i={tür}/{slug}--{id} ──
+  useEffect(() => {
+    const read = () => setDeepLink(parseContentLink(window.location, getBase()));
+    read();
+    window.addEventListener('popstate', read);
+    return () => window.removeEventListener('popstate', read);
+  }, []);
+
+  useEffect(() => {
+    if (!deepLink) return;
+    // Hizmet bağlantısı: hizmet sekmesini ve ilgili kategorinin talep formunu açar
+    if (deepLink.type === 'hizmet') {
+      const key = `hizmet:${deepLink.slug}`;
+      if (resolvedLinkRef.current === key) return;
+      resolvedLinkRef.current = key;
+      const cat = ALL_SERVICE_CATEGORIES.find((c: any) => slugify(c.name) === deepLink.slug || slugify(c.shortTitle || '') === deepLink.slug || c.id === deepLink.slug);
+      setActiveTab('services');
+      setServiceViewMode('requests');
+      if (cat) handleOpenCategoryRequest(cat.id);
+      return;
+    }
+    if (!deepLink.id) return;
+    const key = `${deepLink.type}:${deepLink.id}`;
+
+    // Haber: listeden aç; listede yoksa belgeyi doğrudan getir
+    if (deepLink.type === 'haber') {
+      if (resolvedLinkRef.current === key) return;
+      const found = newsItems.find((n) => n.id === deepLink.id);
+      if (found) {
+        setSelectedNews(found);
+        resolvedLinkRef.current = key;
+        return;
+      }
+      if (resolvedLinkRef.current === key + ':fetch') return;
+      resolvedLinkRef.current = key + ':fetch';
+      getDoc(doc(db, 'haberler', deepLink.id))
+        .then((snap) => {
+          if (snap.exists()) {
+            setSelectedNews({ ...(snap.data() as any), id: snap.id } as SampleNewsItem);
+            resolvedLinkRef.current = key;
+          } else {
+            showToast('Bu bağlantıdaki haber bulunamadı veya yayından kaldırılmış.', true);
+          }
+        })
+        .catch(() => showToast('Bu bağlantıdaki haber açılamadı.', true));
+      return;
+    }
+
+    // Diğer türler: eşlenen koleksiyonlarda ara, ortak içerik sayfasında göster
+    if (resolvedLinkRef.current === key) return;
+    resolvedLinkRef.current = key;
+    const candidates = CONTENT_COLLECTIONS[deepLink.type as Exclude<ContentType, 'hizmet'>] || [];
+    (async () => {
+      for (const c of candidates) {
+        try {
+          const snap = await getDoc(doc(db, c.col, deepLink.id!));
+          if (snap.exists()) {
+            const data = snap.data() as any;
+            setSharedContent({
+              kind: c.kind,
+              type: deepLink.type,
+              id: snap.id,
+              data,
+              url: dataToShareItem(c.kind, data, snap.id).url
+            });
+            return;
+          }
+        } catch (_) {
+          /* yetki yok veya ağ hatası: sıradaki koleksiyonu dene */
+        }
+      }
+      showToast('Bu bağlantıdaki içerik bulunamadı veya yayından kaldırılmış.', true);
+    })();
+  }, [deepLink, newsItems]);
+
   const handleOpenNewsDetail = (news: SampleNewsItem) => {
     setSelectedNews(news);
     const url = new URL(window.location.href);
@@ -1774,14 +1643,121 @@ export default function App() {
     url.searchParams.delete('haber');
     url.searchParams.delete('news');
     url.searchParams.delete('id');
-    const cleanPath = url.pathname + (url.search ? url.search : '');
-    window.history.pushState({}, '', cleanPath);
+    resolvedLinkRef.current = '';
+    setDeepLink(null);
+    window.history.pushState({}, '', cleanedUrl(window.location, getBase()));
   };
 
-  const getNewsShareUrl = (news: SampleNewsItem) => {
-    const origin = window.location.origin;
-    const path = window.location.pathname;
-    return `${origin}${path}?haber=${news.id || encodeURIComponent(news.baslik)}`;
+  // Haber bağlantısı: yeni içerik adresi şeması (eski ?haber= adresleri çalışmaya devam eder)
+  const getNewsShareUrl = (news: SampleNewsItem) => buildContentUrl('haber', news.id || slugify(news.baslik), news.baslik);
+
+  // ── PAYLAŞIM STÜDYOSU YARDIMCILARI ──
+  const openShareStudio = (item: ShareItem) => setShareItem(item);
+
+  const newsToShareItem = (n: SampleNewsItem): ShareItem => ({
+    type: 'haber',
+    title: n.baslik,
+    summary: n.ozet || (n.icerik ? n.icerik.substring(0, 180) : ''),
+    category: n.kategori,
+    imageUrl: (n as any).imageURL || undefined,
+    meta: n.tarihStr ? [n.tarihStr] : [],
+    url: getNewsShareUrl(n),
+    contentId: n.id
+  });
+
+  // Herhangi bir içerik (kind + veri) -> paylaşım öğesi. Kişisel iletişim bilgisi görsele/metne eklenmez.
+  const dataToShareItem = (kind: ContentKind, d: any, id: string): ShareItem => {
+    const type = KIND_TO_TYPE[kind];
+    const photo: string | undefined = (d.fotolar && d.fotolar[0]) || d.fotoUrl || d.davetiyeFoto || d.imageURL || undefined;
+    const base = { type, contentId: id, imageUrl: photo } as const;
+    switch (kind) {
+      case 'cenaze':
+        return {
+          ...base,
+          imageUrl: undefined,
+          title: `${d.fullName}${d.age ? `, ${d.age}` : ''}`,
+          summary: d.family ? `${d.family} adına vefat duyurusu` : 'Vefat duyurusu',
+          category: 'Vefat İlanı',
+          meta: [d.dateStr ? `📅 ${d.dateStr}` : '', d.mosque ? `🕌 ${d.mosque}${d.prayerTime ? ' • ' + d.prayerTime : ''}` : '', d.cemetery ? `⚰️ ${d.cemetery}` : ''].filter(Boolean),
+          url: buildContentUrl('cenaze', id, d.fullName)
+        };
+      case 'marketplace':
+        return {
+          ...base,
+          title: d.baslik,
+          summary: d.aciklama ? String(d.aciklama).substring(0, 180) : '',
+          category: d.ilanTuru === 'emlak' ? 'Emlak İlanı' : '2. El İlanı',
+          meta: typeof d.fiyat === 'number' ? [`💰 ${d.fiyat.toLocaleString('tr-TR')} TL`] : [],
+          url: buildContentUrl('ilan', id, d.baslik)
+        };
+      case 'kayip':
+        return {
+          ...base,
+          title: d.baslik,
+          summary: d.aciklama ? String(d.aciklama).substring(0, 180) : '',
+          category: d.tur === 'bulundu' ? 'Bulundu' : 'Kayıp İlanı',
+          meta: d.konum ? [`📍 ${d.konum}`] : [],
+          url: buildContentUrl('ilan', id, d.baslik)
+        };
+      case 'davet':
+        return {
+          ...base,
+          title: d.baslik,
+          summary: d.aciklama ? String(d.aciklama).substring(0, 180) : '',
+          category: d.turEtiketi || 'Duyuru',
+          meta: [d.tarih ? `📅 ${d.tarih}${d.saat ? ' • ' + d.saat : ''}` : '', d.mekanAdi ? `📍 ${d.mekanAdi}` : ''].filter(Boolean),
+          url: buildContentUrl('duyuru', id, d.baslik)
+        };
+      case 'kursu':
+        return {
+          ...base,
+          title: d.baslik,
+          summary: d.icerik ? String(d.icerik).substring(0, 180) : '',
+          category: d.kategori || 'Mahalle Kürsüsü',
+          meta: d.konum ? [`📍 ${d.konum}`] : [],
+          url: buildContentUrl('duyuru', id, d.baslik)
+        };
+      case 'kampanya':
+        return {
+          ...base,
+          title: d.baslik,
+          summary: d.aciklama ? String(d.aciklama).substring(0, 180) : '',
+          category: d.isyeriAdi || 'Esnaf Kampanyası',
+          meta: [d.indirimOrani ? `🏷️ ${d.indirimOrani}` : '', d.adres ? `📍 ${d.adres}` : ''].filter(Boolean),
+          url: buildContentUrl('esnaf', id, d.isyeriAdi || d.baslik)
+        };
+      default:
+        return { ...base, title: d.baslik || d.title || '', summary: '', url: buildContentUrl(type, id, d.baslik) };
+    }
+  };
+
+  const closeSharedContent = () => {
+    resolvedLinkRef.current = '';
+    setSharedContent(null);
+    setDeepLink(null);
+    window.history.replaceState({}, '', cleanedUrl(window.location, getBase()));
+  };
+
+  const handleCopySharedLink = async (c: SharedContent) => {
+    try {
+      await navigator.clipboard.writeText(c.url);
+      showToast('Bağlantı kopyalandı 🔗');
+    } catch (_) {
+      showToast('Bağlantı: ' + c.url);
+    }
+  };
+
+  // Paylaşım durumu takibi: yalnızca editör/yönetici paylaşımları kaydedilir (social_shares)
+  const recordShare = (item: ShareItem, channel: string) => {
+    if (!isRealStaff || !user) return;
+    addDoc(collection(db, 'social_shares'), {
+      contentType: item.type,
+      contentId: item.contentId || '',
+      title: item.title.slice(0, 120),
+      channel,
+      uid: user.uid,
+      createdAt: serverTimestamp()
+    }).catch(() => {});
   };
 
   const handleShareWhatsApp = (news: SampleNewsItem) => {
@@ -2121,21 +2097,13 @@ export default function App() {
     }, (err) => console.warn('davet firestore:', err.message));
 
     // Cenaze & Vefat İlanları Dinleyicisi
-    const qDeceased = query(collection(db, 'cenaze_ilanlari'), orderBy('createdAt', 'desc'));
+    // Yalnızca onaylanıp yayınlanmış vefat ilanları herkese görünür (sıralama istemcide: bileşik indeks gerekmesin)
+    const qDeceased = query(collection(db, 'cenaze_ilanlari'), where('status', '==', 'published'));
     const unsubDeceased = onSnapshot(qDeceased, (snap) => {
-      {
-        const seen = new Set<string>();
-        const items: DeceasedItem[] = [];
-        snap.forEach((d) => {
-          const data = d.data();
-          const key = (data.fullName + '-' + data.dateStr) || data.id || d.id;
-          if (!seen.has(key)) {
-            seen.add(key);
-            items.push({ ...data, id: d.id } as DeceasedItem);
-          }
-        });
-        setDeceasedList(items);
-      }
+      const items: DeceasedItem[] = [];
+      snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as DeceasedItem));
+      items.sort((x: any, y: any) => (toMillis(y.publishedAt) || toMillis(y.createdAt) || Date.now()) - (toMillis(x.publishedAt) || toMillis(x.createdAt) || Date.now()));
+      setDeceasedList(items);
     }, (err) => console.warn('cenaze firestore:', err.message));
 
     // Kullanıcılar (Rol Yönetimi için)
@@ -2477,6 +2445,44 @@ export default function App() {
       setAcceptingOfferId(null);
     }
   };
+
+  // Editör/yönetici: onay bekleyen vefat ilanları
+  useEffect(() => {
+    if (!isRealStaff) {
+      setPendingDeceased([]);
+      return;
+    }
+    const q = query(collection(db, 'cenaze_ilanlari'), where('status', '==', 'pending'));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const items: DeceasedItem[] = [];
+        snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as DeceasedItem));
+        items.sort((x: any, y: any) => (toMillis(y.createdAt) || Date.now()) - (toMillis(x.createdAt) || Date.now()));
+        setPendingDeceased(items);
+      },
+      (err) => console.warn('cenaze bekleyen:', err.message)
+    );
+  }, [isRealStaff, user?.uid]);
+
+  // Kullanıcının kendi vefat ilanları (onay bekleyen / reddedilen durumunu görebilsin)
+  useEffect(() => {
+    if (!user) {
+      setMyDeceased([]);
+      return;
+    }
+    const q = query(collection(db, 'cenaze_ilanlari'), where('uid', '==', user.uid));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const items: DeceasedItem[] = [];
+        snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as DeceasedItem));
+        items.sort((x: any, y: any) => (toMillis(y.createdAt) || Date.now()) - (toMillis(x.createdAt) || Date.now()));
+        setMyDeceased(items);
+      },
+      (err) => console.warn('cenaze benim:', err.message)
+    );
+  }, [user?.uid]);
 
   // Usta "Diğer" seçince yazdığı faaliyet alanını sisteme ekler (varsa mevcut olanı kullanır). Ad döndürür.
   const addCustomArea = async (raw: string): Promise<string | null> => {
@@ -2940,14 +2946,8 @@ export default function App() {
           createdAt: serverTimestamp()
         });
       }
-      // 8. Cenaze & Vefat İlanları
-      for (const item of DECEASED_ITEMS) {
-        await addDoc(collection(db, 'cenaze_ilanlari'), {
-          ...item,
-          createdAt: serverTimestamp()
-        });
-      }
-      if (!silent) showToast('Tüm mahalle veritabanı (Davetler, Emlak, 2.El, Haberler, Cenaze) başarıyla buluta aktarıldı! 🎉');
+      // Vefat ilanları örnek veriden yüklenmez: gerçek kişilere ait olmayan sahte kayıt oluşmasın.
+      if (!silent) showToast('Tüm mahalle veritabanı (Davetler, Emlak, 2.El, Haberler) başarıyla buluta aktarıldı! 🎉');
     } catch (e: any) {
       if (!silent) showToast('Aktarım hatası: ' + e.message, true);
     }
@@ -2979,6 +2979,9 @@ export default function App() {
         dateStr: newDeceasedDate || 'Bugün',
         uid: user.uid,
         authorName: profile?.name || user.displayName || 'Mahalle Sakini',
+        // Editör/yönetici doğrudan yayınlar; diğer herkesin ilanı editör onayına düşer.
+        status: isRealStaff ? 'published' : 'pending',
+        ...(isRealStaff ? { publishedAt: serverTimestamp(), approvedBy: user.uid } : {}),
         createdAt: serverTimestamp()
       });
     } catch (err: any) {
@@ -2990,7 +2993,40 @@ export default function App() {
     setNewDeceasedName('');
     setNewDeceasedAge('');
     setNewDeceasedFamily('');
-    showToast("Vefat ve cenaze ilanı duyuruldu. Merhuma Allah'tan rahmet, kederli ailesine başsağlığı dileriz. 🕊️");
+    showToast(
+      isRealStaff
+        ? "Vefat ve cenaze ilanı yayınlandı. Merhuma Allah'tan rahmet, kederli ailesine başsağlığı dileriz. 🕊️"
+        : 'İlanınız editör onayına gönderildi. Onaylanınca mahalleye duyurulacak. 🕊️'
+    );
+  };
+
+  const handleApproveDeceased = async (d: DeceasedItem) => {
+    if (!isRealStaff || !user) return;
+    try {
+      await updateDoc(doc(db, 'cenaze_ilanlari', d.id), {
+        status: 'published',
+        publishedAt: serverTimestamp(),
+        approvedBy: user.uid
+      });
+      showToast(`"${d.fullName}" ilanı yayınlandı. 🕊️`);
+    } catch (err: any) {
+      showToast('İlan onaylanamadı: ' + (err?.code === 'permission-denied' ? 'yetkiniz yok (Firestore kuralları yayınlandı mı?)' : (err?.message || 'bilinmeyen hata')), true);
+    }
+  };
+
+  const handleRejectDeceased = async (d: DeceasedItem) => {
+    if (!isRealStaff || !user) return;
+    if (!confirm(`"${d.fullName}" ilanı reddedilsin mi?`)) return;
+    try {
+      await updateDoc(doc(db, 'cenaze_ilanlari', d.id), {
+        status: 'rejected',
+        rejectedBy: user.uid,
+        rejectedAt: serverTimestamp()
+      });
+      showToast('İlan reddedildi.');
+    } catch (err: any) {
+      showToast('İlan reddedilemedi: ' + (err?.code === 'permission-denied' ? 'yetkiniz yok' : (err?.message || 'bilinmeyen hata')), true);
+    }
   };
 
   const canDeleteDeceased = (d: DeceasedItem) => Boolean(user && (isUserAdmin || (d as any).uid === user.uid));
@@ -3914,8 +3950,8 @@ export default function App() {
   const isUserAdmin = Boolean((user || profile) && (demoRole === 'admin' || profile?.role === 'admin' || (user?.email === 'yakupkrbck@gmail.com' && user?.emailVerified)));
   const isUserEditor = Boolean((user || profile) && (isUserAdmin || demoRole === 'editor' || profile?.role === 'editor'));
   const pendingTipsCount = useMemo(() => {
-    return newsItems.filter(n => n.status === 'pending').length;
-  }, [newsItems]);
+    return newsItems.filter(n => n.status === 'pending').length + pendingDeceased.length;
+  }, [newsItems, pendingDeceased]);
 
   // Filtered lists
   const breakingNews = useMemo(() => {
@@ -4356,6 +4392,17 @@ export default function App() {
       </div>
     );
   };
+
+  // Sosyal medya paneli: paylaşılabilir içerik kaynakları (yayında olanlar)
+  const adminShareSources = [
+    ...newsItems.filter((n) => n.status === 'approved' && n.id).map((n) => ({ key: 'n_' + n.id, group: 'haber', label: n.baslik, sub: n.kategori || '', item: newsToShareItem(n) })),
+    ...deceasedList.filter((d) => d.id).map((d) => ({ key: 'c_' + d.id, group: 'cenaze', label: d.fullName, sub: d.dateStr || '', item: dataToShareItem('cenaze', d, d.id) })),
+    ...invitationItems.filter((d) => d.id).map((d) => ({ key: 'd_' + d.id, group: 'duyuru', label: d.baslik, sub: d.tarih || '', item: dataToShareItem('davet', d, d.id!) })),
+    ...kursuItems.filter((k) => k.id).map((k) => ({ key: 'k_' + k.id, group: 'duyuru', label: k.baslik, sub: k.kategori || '', item: dataToShareItem('kursu', k, k.id!) })),
+    ...marketplaceItems.filter((m) => m.id && m.status === 'active').map((m) => ({ key: 'm_' + m.id, group: 'ilan', label: m.baslik, sub: m.kategori || '', item: dataToShareItem('marketplace', m, m.id!) })),
+    ...lostFoundItems.filter((l) => l.id).map((l) => ({ key: 'l_' + l.id, group: 'ilan', label: l.baslik, sub: l.tur === 'bulundu' ? 'Bulundu' : 'Kayıp', item: dataToShareItem('kayip', l, l.id!) })),
+    ...campaigns.filter((c) => c.id).map((c) => ({ key: 'e_' + c.id, group: 'esnaf', label: c.baslik, sub: c.isyeriAdi || '', item: dataToShareItem('kampanya', c, c.id!) }))
+  ];
 
   // Üst şeritte yalnızca son 7 günün ilanları döner; "Tümü" listesinde hepsi görünür.
   const activeDeceased = deceasedList.filter((d: any) => {
@@ -6559,7 +6606,7 @@ export default function App() {
                       }`}
                     >
                       <span className="text-base">👷</span>
-                      <span>Mahalle Ustaları ({VERIFIED_MASTERS.length} Onaylı Esnaf)</span>
+                      <span>Mahalle Ustaları{VERIFIED_MASTERS.length > 0 ? ` (${VERIFIED_MASTERS.length} Onaylı Usta)` : ''}</span>
                     </button>
 
                     <button
@@ -6808,6 +6855,32 @@ export default function App() {
                   </div>
 
                   {/* Usta Kartları Izgarası */}
+                  {searchMatchingMasters.length === 0 && (
+                    <div className="bg-white rounded-3xl p-8 border border-slate-200/90 text-center space-y-3">
+                      <div className="text-4xl">👷</div>
+                      <h4 className="font-black text-base text-slate-900">Rehberde henüz onaylı usta yok</h4>
+                      <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                        Mahalle ustaları kayıt olup onaylandıkça burada listelenecek. Ustaysan hemen usta olarak kayıt olabilirsin.
+                      </p>
+                      <div className="flex flex-wrap gap-2 justify-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenArtisanOnboarding('usta')}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black cursor-pointer"
+                        >
+                          🛠️ Usta Olarak Kayıt Ol
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setServiceViewMode('requests')}
+                          className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-black cursor-pointer"
+                        >
+                          Hizmet Talebi Aç
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {searchMatchingMasters.map(master => (
                       <div
@@ -8630,7 +8703,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => handleShareWhatsApp(selectedNews)}
+                  onClick={() => openShareStudio(newsToShareItem(selectedNews))}
                   className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-emerald-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
                   title="Paylaş"
                 >
@@ -8723,7 +8796,7 @@ export default function App() {
               </div>
 
               <button
-                onClick={() => handleShareWhatsApp(selectedNews)}
+                onClick={() => openShareStudio(newsToShareItem(selectedNews))}
                 className="flex items-center gap-1 font-bold text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-50"
               >
                 <Share2 className="w-4 h-4" />
@@ -11326,7 +11399,7 @@ export default function App() {
 
             <form onSubmit={handlePublishDeceased} className="space-y-3.5">
               <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl text-[11px] text-emerald-950 font-medium leading-relaxed">
-                İlanınız anında en üstteki <strong>Vefat &amp; Taziye</strong> şeridine ve şehir vefat bültenine eklenerek tüm mahalleye duyurulacaktır.
+                İlanınız önce <strong>editör onayına</strong> gönderilir. Onaylandığında en üstteki <strong>Vefat &amp; Taziye</strong> şeridinde ve vefat listesinde tüm mahalleye duyurulur.
               </div>
 
               {/* Merhum / Merhume Adı ve Yaşı */}
@@ -12237,6 +12310,7 @@ export default function App() {
         onOpenAddDeceased={() => setShowNewDeceasedModal(true)}
         canDeleteDeceased={canDeleteDeceased}
         onDeleteDeceased={handleDeleteDeceased}
+        myDeceasedPending={myDeceased.filter((d: any) => d.status === 'pending' || d.status === 'rejected')}
       />
 
       {/* ── 🚨 ACİL DURUM VE HIZLI ÇAĞRI MODALI ── */}
@@ -12486,6 +12560,17 @@ export default function App() {
         </div>
       )}
 
+      {/* ── PAYLAŞILAN BAĞLANTIDAN AÇILAN İÇERİK (haber dışı türler) ── */}
+      <SharedContentView
+        content={sharedContent}
+        onClose={closeSharedContent}
+        onCopyLink={handleCopySharedLink}
+        onShare={(c) => openShareStudio(dataToShareItem(c.kind, c.data, c.id))}
+      />
+
+      {/* ── PAYLAŞIM STÜDYOSU: hikâye görseli, bağlantı, metin ── */}
+      <ShareStudio item={shareItem} onClose={() => setShareItem(null)} onToast={showToast} onShared={recordShare} />
+
       {/* ── GOOGLE İLE İLK GİRİŞ: HESABINI TAMAMLA ── */}
       {showOnboarding && (
         <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4">
@@ -12697,6 +12782,11 @@ export default function App() {
         contentSections={adminContentSections}
         liveConfig={liveConfig}
         onSaveLive={handleSaveLive}
+        shareSources={adminShareSources}
+        onPrepareShare={openShareStudio}
+        pendingDeceased={pendingDeceased}
+        onApproveDeceased={handleApproveDeceased}
+        onRejectDeceased={handleRejectDeceased}
         onDeleteContent={handleAdminDeleteContent}
         onDeleteAllContent={handleAdminDeleteAllContent}
         onUpdateUserRole={handleUpdateUserRole}

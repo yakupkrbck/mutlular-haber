@@ -49,6 +49,8 @@ export interface DeceasedItem {
   uid?: string;
   authorName?: string;
   createdAt?: any;
+  status?: 'pending' | 'published' | 'rejected';
+  publishedAt?: any;
 }
 
 export interface TouristSpotItem {

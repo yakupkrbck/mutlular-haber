@@ -57,6 +57,11 @@ interface MutlularAdminEditorPanelProps {
   contentSections?: AdminContentSection[];
   liveConfig?: LiveConfig;
   onSaveLive?: (cfg: LiveConfig) => Promise<boolean>;
+  shareSources?: { key: string; group: string; label: string; sub: string; item: any }[];
+  onPrepareShare?: (item: any) => void;
+  pendingDeceased?: { id: string; fullName: string; age?: number; family?: string; mosque?: string; prayerTime?: string; cemetery?: string; dateStr?: string; authorName?: string }[];
+  onApproveDeceased?: (d: any) => Promise<void>;
+  onRejectDeceased?: (d: any) => Promise<void>;
   onDeleteContent?: (col: string, id: string) => Promise<void>;
   onDeleteAllContent?: (col: string) => Promise<void>;
   onUpdateUserRole: (targetUid: string, newRole: UserRole, targetEmail?: string) => Promise<void>;
@@ -80,6 +85,11 @@ export function MutlularAdminEditorPanel({
   contentSections = [],
   liveConfig = EMPTY_LIVE,
   onSaveLive,
+  shareSources = [],
+  onPrepareShare,
+  pendingDeceased = [],
+  onApproveDeceased,
+  onRejectDeceased,
   onDeleteContent,
   onDeleteAllContent,
   onUpdateUserRole,
@@ -87,7 +97,7 @@ export function MutlularAdminEditorPanel({
   activeDemoRole = 'admin',
   showToast
 }: MutlularAdminEditorPanelProps) {
-  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live'>('review_tips');
+  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live' | 'deceased' | 'social'>('review_tips');
 
   // Review sub-filter
   const [tipFilter, setTipFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -118,6 +128,10 @@ export function MutlularAdminEditorPanel({
   useEffect(() => {
     setLiveDraft({ ...EMPTY_LIVE, ...liveConfig });
   }, [liveConfig.aktif, liveConfig.baslik, liveConfig.aciklama, liveConfig.url]);
+
+  // Sosyal medya paneli state
+  const [shareGroup, setShareGroup] = useState<string>('haber');
+  const [shareSearch, setShareSearch] = useState('');
 
   // İçerik yönetimi state
   const [contentCol, setContentCol] = useState<string>('haberler');
@@ -342,6 +356,35 @@ export function MutlularAdminEditorPanel({
                 </span>
               ) : (
                 <Lock className="w-3 h-3 text-slate-400" />
+              )}
+            </button>
+
+            {/* Sekme: Sosyal Medya (yönetici + editör) */}
+            <button
+              onClick={() => setActiveTab('social')}
+              className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'social'
+                  ? 'bg-white text-pink-700 shadow-sm border border-slate-200/80 ring-2 ring-pink-500/20'
+                  : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+              }`}
+            >
+              <span>📸</span>
+              <span>Sosyal Medya</span>
+            </button>
+
+            {/* Sekme: Vefat ilanı onayı (yönetici + editör) */}
+            <button
+              onClick={() => setActiveTab('deceased')}
+              className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'deceased'
+                  ? 'bg-white text-emerald-800 shadow-sm border border-slate-200/80 ring-2 ring-emerald-500/20'
+                  : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+              }`}
+            >
+              <span>🕊️</span>
+              <span>Vefat Onayı</span>
+              {pendingDeceased.length > 0 && (
+                <span className="px-1.5 rounded-full text-[10px] font-black bg-red-600 text-white">{pendingDeceased.length}</span>
               )}
             </button>
 
@@ -806,6 +849,115 @@ export function MutlularAdminEditorPanel({
           {/* ═════════════════════════════════════════════════════════════
               SEKME 3: KULLANICI & ROL YÖNETİMİ (YÖNETİCİ / ADMIN)
              ═════════════════════════════════════════════════════════════ */}
+          {activeTab === 'social' && (
+            <div className="space-y-3">
+              <div className="rounded-2xl p-3 text-xs border bg-pink-50 border-pink-200 text-pink-900">
+                Bir içerik seçin; hikâye görseli (1080 × 1920), kalıcı bağlantı ve paylaşım metni hazırlanır.
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ['haber', '📰 Haber'],
+                  ['cenaze', '🕊️ Vefat'],
+                  ['duyuru', '📢 Duyuru'],
+                  ['ilan', '🏷️ İlan'],
+                  ['esnaf', '🏪 Esnaf']
+                ] as const).map(([g, label]) => (
+                  <button
+                    key={g}
+                    onClick={() => setShareGroup(g)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                      shareGroup === g ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {label} ({shareSources.filter((x) => x.group === g).length})
+                  </button>
+                ))}
+              </div>
+
+              <input
+                value={shareSearch}
+                onChange={(e) => setShareSearch(e.target.value)}
+                placeholder="İçerikte ara…"
+                className="w-full sm:max-w-xs text-xs p-2.5 bg-white border border-slate-200 rounded-xl"
+              />
+
+              <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+                {shareSources
+                  .filter((x) => x.group === shareGroup)
+                  .filter((x) => !shareSearch.trim() || (x.label + ' ' + x.sub).toLowerCase().includes(shareSearch.toLowerCase()))
+                  .slice(0, 60)
+                  .map((x) => (
+                    <div key={x.key} className="p-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-black text-slate-900 truncate">{x.label}</div>
+                        {x.sub && <div className="text-[11px] text-slate-500 truncate">{x.sub}</div>}
+                      </div>
+                      <button
+                        onClick={() => onPrepareShare?.(x.item)}
+                        className="shrink-0 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black cursor-pointer"
+                      >
+                        Paylaşım Hazırla
+                      </button>
+                    </div>
+                  ))}
+                {shareSources.filter((x) => x.group === shareGroup).length === 0 && (
+                  <div className="p-6 text-center text-xs text-slate-500">Bu türde yayında içerik yok.</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'deceased' && (
+            <div className="space-y-3">
+              <div className="rounded-2xl p-3 text-xs border bg-emerald-50 border-emerald-200 text-emerald-900">
+                Mahalleliler, esnaf ve ustalar vefat ilanı bıraktığında ilan burada onayınızı bekler. Onayladığınızda üst şeritte ve vefat listesinde yayınlanır.
+              </div>
+
+              {pendingDeceased.length === 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-500">
+                  Onay bekleyen vefat ilanı yok.
+                </div>
+              )}
+
+              {pendingDeceased.map((d) => (
+                <div key={d.id} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-black text-sm text-slate-900">
+                        {d.fullName}{d.age ? `, ${d.age}` : ''}
+                      </div>
+                      <div className="text-[11px] text-slate-500">İlanı bırakan: {d.authorName || 'Bilinmiyor'}</div>
+                    </div>
+                    <span className="text-[10px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md shrink-0">Onay bekliyor</span>
+                  </div>
+                  <div className="text-xs text-slate-700 space-y-0.5">
+                    {d.family && <div>👪 {d.family}</div>}
+                    {d.mosque && <div>🕌 {d.mosque} • {d.prayerTime}</div>}
+                    {d.cemetery && <div>⚰️ {d.cemetery}</div>}
+                    {d.dateStr && <div>📅 {d.dateStr}</div>}
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => onApproveDeceased?.(d)}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black py-2 rounded-xl cursor-pointer"
+                    >
+                      ✅ Onayla ve Yayınla
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRejectDeceased?.(d)}
+                      className="px-4 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-black py-2 rounded-xl cursor-pointer"
+                    >
+                      Reddet
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {activeTab === 'live' && (
             <div className="space-y-4">
               <div className={`rounded-2xl p-3 text-xs border ${liveDraft.aktif ? 'bg-red-50 border-red-200 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
