@@ -28,8 +28,8 @@ const THEMES: Record<ContentType, { from: string; to: string; label: string; emo
   hizmet: { from: '#312e81', to: '#6d28d9', label: 'HİZMET', emoji: '🛠️', cta: 'Hizmet talebi oluşturmak ve teklif almak için bağlantıya tıklayın' }
 };
 
-const SANS = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
-const SERIF = '"Newsreader", Georgia, "Times New Roman", serif';
+const SANS = '"Roboto", system-ui, -apple-system, "Segoe UI", Arial, sans-serif';
+const SERIF = SANS;
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -80,8 +80,8 @@ async function ensureFonts() {
   try {
     await Promise.race([
       Promise.all([
-        document.fonts.load(`800 54px ${SANS}`),
-        document.fonts.load(`600 38px ${SANS}`),
+        document.fonts.load(`900 54px ${SANS}`),
+        document.fonts.load(`500 38px ${SANS}`),
         document.fonts.load(`400 40px ${SANS}`),
         document.fonts.load(`700 76px ${SERIF}`)
       ]),
@@ -118,7 +118,7 @@ async function drawCard(canvas: HTMLCanvasElement, item: ShareItem): Promise<{ i
   // Üst şerit: marka + tür
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#ffffff';
-  ctx.font = `800 54px ${SANS}`;
+  ctx.font = `900 54px ${SANS}`;
   ctx.textAlign = 'left';
   ctx.fillText('Mutlular Haber', 80, 140);
   ctx.font = `700 30px ${SANS}`;
@@ -188,7 +188,7 @@ async function drawCard(canvas: HTMLCanvasElement, item: ShareItem): Promise<{ i
 
   // Tarih / konum satırları
   if (item.meta && item.meta.length) {
-    ctx.font = `600 38px ${SANS}`;
+    ctx.font = `500 38px ${SANS}`;
     ctx.fillStyle = '#ffffff';
     item.meta.slice(0, 3).forEach((m, i) => {
       const ln = wrapLines(ctx, m, W - 220, 1)[0] || '';
@@ -202,11 +202,11 @@ async function drawCard(canvas: HTMLCanvasElement, item: ShareItem): Promise<{ i
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.fillStyle = t.from;
-  ctx.font = `800 40px ${SANS}`;
+  ctx.font = `900 40px ${SANS}`;
   const ctaLines = wrapLines(ctx, t.cta, W - 240, 2);
   ctaLines.forEach((ln, i) => ctx.fillText(ln, 120, by + 76 + i * 52));
   ctx.fillStyle = '#475569';
-  ctx.font = `600 32px ${SANS}`;
+  ctx.font = `500 32px ${SANS}`;
   ctx.fillText('🔗 Bağlantı hikâyede', 120, by + 76 + ctaLines.length * 52 + 14);
 
   return { imageFailed };

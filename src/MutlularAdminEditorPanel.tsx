@@ -49,6 +49,7 @@ interface MutlularAdminEditorPanelProps {
     icerik: string;
     imageURL: string;
     sonDakika: boolean;
+    bildirimKategorisi?: 'sondakika' | 'haber' | 'duyuru' | 'etkinlik';
     authorName?: string;
   }) => Promise<void>;
   onApproveTip: (tip: SampleNewsItem) => Promise<void>;
@@ -109,6 +110,7 @@ export function MutlularAdminEditorPanel({
   // New News form state
   const [newsTitle, setNewsTitle] = useState('');
   const [newsCategory, setNewsCategory] = useState('Belediye & Hizmet');
+  const [newsNotifCat, setNewsNotifCat] = useState<'sondakika' | 'haber' | 'duyuru' | 'etkinlik'>('haber');
   const [newsOzet, setNewsOzet] = useState('');
   const [newsIcerik, setNewsIcerik] = useState('');
   const [newsImageUrl, setNewsImageUrl] = useState('https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=1200&q=80');
@@ -233,6 +235,7 @@ export function MutlularAdminEditorPanel({
         icerik: newsIcerik.trim() || newsOzet.trim(),
         imageURL: newsImageUrl.trim(),
         sonDakika: newsSonDakika,
+        bildirimKategorisi: newsSonDakika ? 'sondakika' : newsNotifCat,
         authorName: currentUser?.name ? `${currentUser.name} (${isAdmin ? 'Yönetici' : 'Editör'})` : 'Mutlular Haber'
       });
 
@@ -241,6 +244,7 @@ export function MutlularAdminEditorPanel({
       setNewsOzet('');
       setNewsIcerik('');
       setNewsSonDakika(false);
+      setNewsNotifCat('haber');
       setActiveTab('review_tips');
     } catch (err: any) {
       showToast('Haber yayınlanırken bir sorun oluştu.');
@@ -750,6 +754,22 @@ export function MutlularAdminEditorPanel({
                       <option value="Spor & Gençlik">Spor &amp; Gençlik</option>
                       <option value="Duyuru">Genel Muhtarlık Duyurusu</option>
                     </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Bildirim kategorisi</label>
+                    <select
+                      value={newsSonDakika ? 'sondakika' : newsNotifCat}
+                      disabled={newsSonDakika}
+                      onChange={(e) => setNewsNotifCat(e.target.value as 'haber' | 'duyuru' | 'etkinlik')}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl disabled:opacity-60"
+                    >
+                      <option value="haber">📰 Mahalle haberi</option>
+                      <option value="duyuru">📢 Önemli mahalle duyurusu</option>
+                      <option value="etkinlik">🎉 Etkinlik</option>
+                      {newsSonDakika && <option value="sondakika">🚨 Son dakika (işaretli)</option>}
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-1">Kullanıcılar yalnızca seçtikleri kategorilerde bildirim alır.</p>
                   </div>
 
                   <div className="flex items-center">

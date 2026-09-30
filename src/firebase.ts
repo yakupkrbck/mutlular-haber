@@ -204,6 +204,9 @@ export interface UserProfile {
   esnafAciklama?: string;
   newsNotificationPreferences?: NewsNotificationPreferences;
   notifSeenAt?: number;
+  notifPrefs?: Record<string, boolean>;
+  notifReadIds?: string[];
+  ornekCalismalar?: string[];
   passwordHash?: string;
   createdAt?: Timestamp | Date;
 }
@@ -356,6 +359,7 @@ export interface NewsItem {
   icerik?: string;
   kategori?: string;
   sonDakika?: boolean;
+  bildirimKategorisi?: 'sondakika' | 'haber' | 'duyuru' | 'etkinlik';
   imageURL?: string;
   status: 'pending' | 'approved' | 'rejected';
   authorName?: string;

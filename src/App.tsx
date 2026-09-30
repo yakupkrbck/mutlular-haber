@@ -65,6 +65,14 @@ import {
   slugify
 } from './links';
 import { ShareStudio, type ShareItem } from './ShareStudio';
+import { NotificationPrefsCard } from './NotificationPrefsCard';
+import { ProfileRoleCard } from './ProfileRoleCard';
+import {
+  type NotifPrefs,
+  DEFAULT_NOTIF_PREFS,
+  normalizePrefs,
+  buildContentNotifications
+} from './notifications';
 import { SharedContentView, type SharedContent } from './SharedContentView';
 import { toEmbedUrl, cleanLiveUrl, EMPTY_LIVE, type LiveConfig } from './liveStream';
 import { resolveKategoriId, requestMatchesEsnaf, toMillis, timeAgoTr, ESNAF_TURLERI, DIGER_ALAN, cleanAreaName, customAreaToMainCat, isUstaProfile } from './serviceMatching';
@@ -984,48 +992,8 @@ export default function App() {
   // ── TASARIM & ETKİLEŞİM STATE'LERİ (MOCKUP REFERANSI) ──
   const [savedNewsIds, setSavedNewsIds] = useState<string[]>(['haber_park', 'h1']);
   const [notifTab, setNotifTab] = useState<'tumu' | 'unread' | 'duyuru'>('tumu');
-  const [notifications, setNotifications] = useState([
-    {
-      id: 'notif_1',
-      type: 'sondakika',
-      title: 'Yeni bir haber paylaşıldı: "Mahallemizde Yeni Park Hizmete Açıldı"',
-      category: 'SON DAKİKA',
-      time: '2 dk önce',
-      read: false,
-      badgeColor: 'bg-red-600',
-      icon: '🚨'
-    },
-    {
-      id: 'notif_2',
-      type: 'duyuru',
-      title: 'Belediyeden duyuru: Yol bakım çalışmaları hakkında bilgilendirme.',
-      category: 'DUYURU',
-      time: '1 saat önce',
-      read: true,
-      badgeColor: 'bg-purple-600',
-      icon: '📢'
-    },
-    {
-      id: 'notif_3',
-      type: 'anket',
-      title: 'Yeni bir anket eklendi: Sokak lambaları yeterli mi?',
-      category: 'ANKET',
-      time: '2 saat önce',
-      read: true,
-      badgeColor: 'bg-emerald-600',
-      icon: '📊'
-    },
-    {
-      id: 'notif_4',
-      type: 'ilan',
-      title: 'İlanınız yayına alındı: 2. El Çalışma Masası.',
-      category: 'İLAN',
-      time: '3 saat önce',
-      read: true,
-      badgeColor: 'bg-blue-600',
-      icon: '🏷️'
-    }
-  ]);
+  // Gerçek bildirimler içerikten türetilir (aşağıda). Bu liste yalnızca oturum içi ek uyarılar içindir.
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   // ── 📺 MUTLULAR TV & VİTRİN STATE'LERİ ──
   const [mutlularTvActive, setMutlularTvActive] = useState<boolean>(false);
@@ -1033,6 +1001,15 @@ export default function App() {
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(EMPTY_LIVE);
   // FAZ 2: içerik bağlantıları ve paylaşım stüdyosu
   const [deepLink, setDeepLink] = useState<ParsedLink | null>(null);
+  const [notifPrefs, setNotifPrefs] = useState<NotifPrefs>(() => {
+    try {
+      const raw = localStorage.getItem('mutlular_notif_prefs');
+      return raw ? normalizePrefs(JSON.parse(raw)) : { ...DEFAULT_NOTIF_PREFS };
+    } catch (_) {
+      return { ...DEFAULT_NOTIF_PREFS };
+    }
+  });
+  const [notifReadIds, setNotifReadIds] = useState<string[]>([]);
   const [sharedContent, setSharedContent] = useState<SharedContent | null>(null);
   const [shareItem, setShareItem] = useState<ShareItem | null>(null);
   const resolvedLinkRef = useRef<string>('');
@@ -1219,7 +1196,6 @@ export default function App() {
   const [artisanCustomArea, setArtisanCustomArea] = useState('');
   const [editHesapTipi, setEditHesapTipi] = useState<'usta' | 'esnaf'>('usta');
   const [editCustomArea, setEditCustomArea] = useState('');
-  const [readDerivedIds, setReadDerivedIds] = useState<string[]>([]);
   const [requestScope, setRequestScope] = useState<'uygun' | 'tumu'>('uygun');
   const [acceptingOfferId, setAcceptingOfferId] = useState<string | null>(null);
 
@@ -1923,6 +1899,8 @@ export default function App() {
               setNewsNotifPrefs(data.newsNotificationPreferences);
               localStorage.setItem('dijitalmutlular_news_notif_prefs', JSON.stringify(data.newsNotificationPreferences));
             }
+            setNotifPrefs(normalizePrefs((data as any).notifPrefs, data.newsNotificationPreferences));
+            setNotifReadIds(Array.isArray((data as any).notifReadIds) ? (data as any).notifReadIds : []);
             setProfile(data);
             setDemoRole(data.role);
             setRealRole(data.role);
@@ -2183,6 +2161,7 @@ export default function App() {
       icerik: newsData.icerik,
       imageURL: newsData.imageURL || '',
       sonDakika: newsData.sonDakika,
+      bildirimKategorisi: (newsData as any).bildirimKategorisi || (newsData.sonDakika ? 'sondakika' : 'haber'),
       status: 'approved',
       authorName: newsData.authorName || profile?.name || 'Mutlular Haber',
       authorUid: user?.uid || 'admin_user',
@@ -2294,11 +2273,32 @@ export default function App() {
     updateDoc(doc(db, 'users', user.uid), { notifSeenAt: now }).catch(() => {});
   }, [user?.uid, profile?.uid, profile?.notifSeenAt]);
 
-  // ── TÜRETİLMİŞ BİLDİRİMLER: yeni talep (uygun ustalara) • yeni teklif (talep sahibine) • teklif kabul (ustaya) ──
+  // ── TÜRETİLMİŞ BİLDİRİMLER ──
+  // İçerik (haber, vefat, etkinlik, kampanya, acil kayıp) + kişiye özel (yeni talep, teklif, kabul).
+  // Genel anahtar ve kategori tercihleri uygulanır; tercih dışı kategori hiç görünmez.
   const derivedNotifications = useMemo(() => {
-    if (!user || !notifSeenAt) return [] as any[];
-    const list: any[] = [];
-    const push = (n: any) => list.push({ ...n, time: timeAgoTr(n.ms), read: n.ms <= notifSeenAt || readDerivedIds.includes(n.id) });
+    if (!user || !notifSeenAt || !newsNotifPrefs.enabled) return [] as any[];
+
+    const content = buildContentNotifications({
+      news: newsItems,
+      deceased: deceasedList,
+      invitations: invitationItems,
+      campaigns,
+      lostFound: lostFoundItems,
+      prefs: notifPrefs,
+      seenAt: notifSeenAt,
+      readIds: notifReadIds
+    }) as any[];
+
+    const list: any[] = [...content];
+    const push = (n: any) => {
+      if (!notifPrefs[n.type as keyof NotifPrefs]) return;
+      list.push({
+        ...n,
+        time: timeAgoTr(n.ms),
+        read: n.ms <= notifSeenAt || notifReadIds.includes(n.id)
+      });
+    };
 
     if (isUstaProfile(profile)) {
       serviceRequests.forEach((r) => {
@@ -2306,33 +2306,52 @@ export default function App() {
         if (r.status && r.status !== 'open') return;
         if (!requestMatchesEsnaf(r, profile, ALL_SERVICE_CATEGORIES)) return;
         const ms = toMillis(r.createdAt) || Date.now();
-        push({ id: 'dn_req_' + r.id, type: 'yeni_talep', category: 'YENİ TALEP', icon: '🛠️', badgeColor: 'bg-orange-600', title: `Size uygun yeni talep: ${r.baslik} (${r.kategori})`, ms, requestId: r.id });
+        push({ id: 'dn_req_' + r.id, type: 'hizmet', category: 'YENİ TALEP', icon: '🛠️', badgeColor: 'bg-orange-600', title: `Size uygun yeni talep: ${r.baslik} (${r.kategori})`, ms, target: { kind: 'talep', id: r.id } });
       });
     }
     (Object.values(offersMap) as ServiceOffer[][]).flat().forEach((o) => {
       const ms = toMillis(o.createdAt) || Date.now();
       if (o.requestOwnerUid === user.uid) {
-        push({ id: 'dn_off_' + o.id, type: 'yeni_teklif', category: 'YENİ TEKLİF', icon: '💰', badgeColor: 'bg-emerald-600', title: `${o.esnafIsyeri} talebinize ${o.fiyat} TL teklif verdi${o.requestTitle ? `: ${o.requestTitle}` : ''}`, ms, requestId: o.requestId });
+        push({ id: 'dn_off_' + o.id, type: 'teklif', category: 'YENİ TEKLİF', icon: '💰', badgeColor: 'bg-emerald-600', title: `${o.esnafIsyeri} talebinize ${o.fiyat} TL teklif verdi${o.requestTitle ? `: ${o.requestTitle}` : ''}`, ms, target: { kind: 'talep', id: o.requestId } });
       }
       if (o.esnafUid === user.uid && o.status === 'accepted') {
-        push({ id: 'dn_acc_' + o.id, type: 'teklif_kabul', category: 'TEKLİF KABUL', icon: '✅', badgeColor: 'bg-blue-600', title: `Teklifiniz kabul edildi${o.requestTitle ? `: ${o.requestTitle}` : ''}. Müşteriyle iletişime geçin.`, ms: toMillis(o.acceptedAt) || ms, requestId: o.requestId });
+        push({ id: 'dn_acc_' + o.id, type: 'teklif', category: 'TEKLİF KABUL', icon: '✅', badgeColor: 'bg-blue-600', title: `Teklifiniz kabul edildi${o.requestTitle ? `: ${o.requestTitle}` : ''}. Müşteriyle iletişime geçin.`, ms: toMillis(o.acceptedAt) || ms, target: { kind: 'talep', id: o.requestId } });
       }
     });
-    return list.sort((a, b) => b.ms - a.ms).slice(0, 40);
-  }, [user?.uid, profile, serviceRequests, offersMap, notifSeenAt, readDerivedIds]);
+    return list.sort((a, b) => b.ms - a.ms).slice(0, 50);
+  }, [user?.uid, profile, serviceRequests, offersMap, notifSeenAt, notifReadIds, notifPrefs, newsNotifPrefs.enabled, newsItems, deceasedList, invitationItems, campaigns, lostFoundItems]);
 
   const allNotifications = useMemo(() => [...derivedNotifications, ...notifications], [derivedNotifications, notifications]);
   const unreadNotifCount = useMemo(() => allNotifications.filter((n: any) => !n.read).length, [allNotifications]);
 
-  // Yeni okunmamış bildirim geldiğinde kısa uyarı göster
-  const prevDerivedUnreadRef = useRef<number | null>(null);
-  const derivedUnreadCount = derivedNotifications.filter((n: any) => !n.read).length;
+  // Uygulama açıkken yeni okunmamış bildirim gelince: kısa uyarı, (son dakika ise) ses ve izin verilmişse tarayıcı bildirimi
+  const prevUnreadIdsRef = useRef<string[] | null>(null);
   useEffect(() => {
-    if (prevDerivedUnreadRef.current !== null && derivedUnreadCount > prevDerivedUnreadRef.current) {
-      showToast('🔔 Yeni bildiriminiz var');
+    const unread = derivedNotifications.filter((n: any) => !n.read);
+    const ids = unread.map((n: any) => n.id as string);
+    if (prevUnreadIdsRef.current !== null) {
+      const fresh = unread.filter((n: any) => !prevUnreadIdsRef.current!.includes(n.id));
+      if (fresh.length > 0) {
+        const first: any = fresh[0];
+        showToast(`${first.icon} ${fresh.length > 1 ? `${fresh.length} yeni bildiriminiz var` : first.title}`);
+        if (fresh.some((n: any) => n.type === 'sondakika')) playAlertSound(true);
+        try {
+          if (newsNotifPrefs.browserPush && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(first.category, { body: first.title });
+          }
+        } catch (_) {
+          /* bazı mobil tarayıcılar yapıcıyı desteklemez */
+        }
+      }
     }
-    prevDerivedUnreadRef.current = derivedUnreadCount;
-  }, [derivedUnreadCount]);
+    prevUnreadIdsRef.current = ids;
+  }, [derivedNotifications]);
+
+  const persistReadIds = (ids: string[]) => {
+    const capped = ids.slice(-100);
+    setNotifReadIds(capped);
+    if (user) updateDoc(doc(db, 'users', user.uid), { notifReadIds: capped }).catch(() => {});
+  };
 
   const handleMarkAllNotificationsRead = () => {
     const now = Date.now();
@@ -2345,13 +2364,70 @@ export default function App() {
     showToast('Tüm bildirimler okundu olarak işaretlendi!');
   };
 
+  // Bildirime dokununca ilgili içeriği açar
   const handleOpenDerivedNotification = (n: any) => {
-    setReadDerivedIds((prev) => (prev.includes(n.id) ? prev : [...prev, n.id]));
-    const req = serviceRequests.find((r) => r.id === n.requestId);
-    setActiveTab('services');
-    setServiceViewMode('requests');
+    if (!notifReadIds.includes(n.id)) persistReadIds([...notifReadIds, n.id]);
+    const t = n.target as { kind: string; id: string } | undefined;
+    if (!t) return;
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    if (req) setShowRequestDetail(req);
+
+    if (t.kind === 'talep') {
+      const req = serviceRequests.find((r) => r.id === t.id);
+      setActiveTab('services');
+      setServiceViewMode('requests');
+      if (req) setShowRequestDetail(req);
+      return;
+    }
+    if (t.kind === 'haber') {
+      const found = newsItems.find((x) => x.id === t.id);
+      if (found) handleOpenNewsDetail(found);
+      return;
+    }
+    const pick = (list: any[], kind: ContentKind) => {
+      const d = list.find((x) => x.id === t.id);
+      if (!d) return;
+      const item = dataToShareItem(kind, d, t.id);
+      setSharedContent({ kind, type: KIND_TO_TYPE[kind], id: t.id, data: d, url: item.url });
+    };
+    if (t.kind === 'cenaze') pick(deceasedList, 'cenaze');
+    else if (t.kind === 'davet') pick(invitationItems, 'davet');
+    else if (t.kind === 'kampanya') pick(campaigns, 'kampanya');
+    else if (t.kind === 'kayip') pick(lostFoundItems, 'kayip');
+  };
+
+  // Usta örnek çalışma fotoğrafları (gerçek yükleme; en fazla 12)
+  const handleAddSample = async (url: string) => {
+    if (!user || !profile) return;
+    const current: string[] = ((profile as any).ornekCalismalar as string[]) || [];
+    if (current.length >= 12 || current.includes(url)) return;
+    const next = [...current, url];
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { ornekCalismalar: next });
+      setProfile({ ...(profile as any), ornekCalismalar: next });
+      showToast('Örnek çalışma eklendi 📷');
+    } catch (e: any) {
+      showToast('Fotoğraf kaydedilemedi: ' + (e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  const handleRemoveSample = async (url: string) => {
+    if (!user || !profile) return;
+    const next = (((profile as any).ornekCalismalar as string[]) || []).filter((u) => u !== url);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { ornekCalismalar: next });
+      setProfile({ ...(profile as any), ornekCalismalar: next });
+    } catch (e: any) {
+      showToast('Fotoğraf kaldırılamadı: ' + (e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  // Kategori tercihlerini kaydet (cihazda ve hesapta)
+  const handleSaveNotifPrefs = (next: NotifPrefs) => {
+    setNotifPrefs(next);
+    try {
+      localStorage.setItem('mutlular_notif_prefs', JSON.stringify(next));
+    } catch (_) {}
+    if (user) updateDoc(doc(db, 'users', user.uid), { notifPrefs: next }).catch(() => {});
   };
 
   // ── TALEP OLUŞTURMA: tüm akışlar bu tek fonksiyonu kullanır (talep sahibi uid'si ile kaydedilir) ──
@@ -3439,19 +3515,9 @@ export default function App() {
   };
 
   const handleTestBreakingNewsNotification = () => {
+    // Yalnızca uyarıyı dener (ses + görsel uyarı); bildirim listesine sahte kayıt eklemez.
     playAlertSound(true);
-    const testNotif = {
-      id: 'test_sd_' + Date.now(),
-      type: 'sondakika',
-      title: '🚨 [TEST] SON DAKİKA: Mahallemizde acil su ve altyapı güncellemesi tamamlandı!',
-      category: 'SON DAKİKA',
-      time: 'Az önce',
-      read: false,
-      badgeColor: 'bg-red-600',
-      icon: '🚨'
-    };
-    setNotifications(prev => [testNotif, ...prev]);
-    showToast('🚨 [SON DAKİKA TESTİ] Test uyarısı tetiklendi! Bildirim sesi ve uyarı kutusu başarıyla çalıştı.');
+    showToast('🚨 [TEST] Bu bir deneme uyarısıdır. Ses ve uyarı kutusu çalışıyor.');
   };
 
   const handleRequestBrowserPush = async () => {
@@ -7159,6 +7225,32 @@ export default function App() {
               }}
             />
 
+            {/* Role göre "Benim Alanım" kartı */}
+            {user && profile && headerRoleKind && (
+              <ProfileRoleCard
+                roleKind={headerRoleKind}
+                profile={profile}
+                myRequests={serviceRequests.filter((r) => r.uid === user.uid)}
+                offersByRequest={offersMap}
+                myOffers={(Object.values(offersMap) as ServiceOffer[][]).flat().filter((o) => o.esnafUid === user.uid)}
+                myCampaigns={campaigns.filter((c: any) => c.uid === user.uid || c.authorUid === user.uid)}
+                pendingCount={pendingTipsCount}
+                onOpenRequest={(r) => {
+                  setActiveTab('services');
+                  setServiceViewMode('requests');
+                  setShowRequestDetail(r);
+                }}
+                onOpenPanel={() => setShowAdminPanelModal(true)}
+                onGoTab={(tab) => {
+                  setActiveTab(tab as any);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                onOpenEdit={openProfileEdit}
+                onAddSample={handleAddSample}
+                onRemoveSample={handleRemoveSample}
+              />
+            )}
+
             {/* Profil Alt Sekmeleri (Ayarlar & Bildirim Menüsü) */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
               <button
@@ -7184,14 +7276,14 @@ export default function App() {
                 }`}
               >
                 <BellRing className={`w-4 h-4 ${profileSubTab === 'haber_bildirimleri' ? 'text-white' : 'text-red-600'}`} />
-                <span>Haber Bildirimleri</span>
-                {newsNotifPrefs.sonDakikaOnly && newsNotifPrefs.enabled && (
+                <span>Bildirimler</span>
+                {newsNotifPrefs.enabled && (
                   <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
                     profileSubTab === 'haber_bildirimleri'
                       ? 'bg-white text-red-700'
                       : 'bg-red-100 text-red-700'
                   }`}>
-                    Son Dakika
+                    {Object.values(notifPrefs).filter(Boolean).length} açık
                   </span>
                 )}
               </button>
@@ -7449,10 +7541,10 @@ export default function App() {
                     <span className="text-xl">🚨</span>
                     <div>
                       <span className="text-xs font-black text-red-950 block">
-                        Haber Bildirim Durumu: {newsNotifPrefs.sonDakikaOnly ? 'Sadece "Son Dakika" Haberleri' : 'Tüm Mahalle Haberleri'}
+                        Bildirimler: {newsNotifPrefs.enabled ? `${Object.values(notifPrefs).filter(Boolean).length} kategori açık` : 'Kapalı'}
                       </span>
                       <span className="text-[11px] text-red-700 block">
-                        {newsNotifPrefs.enabled ? 'Anlık sesli ve görsel bildirimler devrede.' : 'Bildirimler şu an kapalı.'}
+                        {newsNotifPrefs.enabled ? 'Seçtiğiniz kategoriler için uygulama içi bildirim alırsınız.' : 'Bildirimler şu an kapalı.'}
                       </span>
                     </div>
                   </div>
@@ -7482,19 +7574,17 @@ export default function App() {
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-black text-base sm:text-lg">Haber Bildirim Ayarları</h4>
+                          <h4 className="font-black text-base sm:text-lg">Bildirim Ayarları</h4>
                           <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
                             !newsNotifPrefs.enabled
                               ? 'bg-black/30 text-white'
-                              : newsNotifPrefs.sonDakikaOnly
-                              ? 'bg-amber-300 text-red-950 font-black tracking-wide shadow-xs'
                               : 'bg-emerald-400 text-emerald-950 font-black'
                           }`}>
-                            {!newsNotifPrefs.enabled ? '🔕 BİLDİRİMLER KAPALI' : newsNotifPrefs.sonDakikaOnly ? '⚡ YALNIZCA SON DAKİKA AKTİF' : '📢 TÜM HABERLER AKTİF'}
+                            {!newsNotifPrefs.enabled ? '🔕 BİLDİRİMLER KAPALI' : `🔔 ${Object.values(notifPrefs).filter(Boolean).length} KATEGORİ AÇIK`}
                           </span>
                         </div>
                         <p className="text-xs text-red-100 mt-1 leading-relaxed max-w-xl">
-                          Mahallemizdeki acil su/elektrik kesintileri, güvenlik uyarıları ve muhtarlık flaş duyuruları için anlık bildirim kriterlerinizi belirleyin.
+                          Hangi kategorilerde bildirim almak istediğinizi seçin: son dakika, vefat, duyuru, etkinlik, esnaf ve hizmet teklifleri.
                         </p>
                       </div>
                     </div>
@@ -7510,110 +7600,13 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Ana Bildirim Kapsamı Seçimi (Sadece Son Dakika vs Tüm Haberler) */}
-                <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-                  <div className="border-b border-slate-100 pb-3">
-                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-red-600" />
-                      <span>Haber Bildirim Kapsamı</span>
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Hangi haberler yayınlandığında anlık bildirim (sesli ve görsel uyarı) almak istersiniz?
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                    {/* Seçenek 1: Sadece Son Dakika */}
-                    <div
-                      onClick={() => handleSaveNewsNotifPrefs({ ...newsNotifPrefs, sonDakikaOnly: true, enabled: true })}
-                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative flex flex-col justify-between ${
-                        newsNotifPrefs.sonDakikaOnly && newsNotifPrefs.enabled
-                          ? 'border-red-500 bg-red-50/70 ring-2 ring-red-200 shadow-sm'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
-                      }`}
-                    >
-                      {newsNotifPrefs.sonDakikaOnly && newsNotifPrefs.enabled && (
-                        <span className="absolute top-3 right-3 bg-red-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-xs flex items-center gap-1">
-                          <Check className="w-3 h-3" /> SEÇİLİ (ÖNERİLEN)
-                        </span>
-                      )}
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-2xl">🚨</span>
-                          <div>
-                            <h5 className="font-black text-sm text-slate-900">
-                              Sadece "Son Dakika" Haberleri
-                            </h5>
-                            <span className="text-[10px] font-bold text-red-700 bg-red-100/90 px-2 py-0.5 rounded-md inline-block mt-0.5">
-                              Acil &amp; Kritik Gelişmeler
-                            </span>
-                          </div>
-                        </div>
-
-                        <p className="text-xs text-slate-600 leading-relaxed">
-                          Yalnızca acil mahalle gelişmeleri, su, elektrik ve doğalgaz kesintileri, afet ve güvenlik uyarıları ile muhtarlık tarafından <strong>"Son Dakika"</strong> olarak etiketlenen haberler için anlık sesli/görsel bildirim alırsınız.
-                        </p>
-
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          <span className="text-[10px] bg-white border border-red-200 text-red-800 font-semibold px-2 py-0.5 rounded-md">⚡ Anlık Flaş Haber</span>
-                          <span className="text-[10px] bg-white border border-red-200 text-red-800 font-semibold px-2 py-0.5 rounded-md">🚰 Altyapı Kesintileri</span>
-                          <span className="text-[10px] bg-white border border-red-200 text-red-800 font-semibold px-2 py-0.5 rounded-md">🛡️ Acil Durumlar</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-3 mt-3 border-t border-red-100 flex items-center justify-between text-[11px]">
-                        <span className="text-slate-500 font-medium">Rutin bültenlerde rahatsız edilmezsiniz.</span>
-                        <span className="font-black text-red-600">Seç ve Kaydet →</span>
-                      </div>
-                    </div>
-
-                    {/* Seçenek 2: Tüm Mahalle Haberleri */}
-                    <div
-                      onClick={() => handleSaveNewsNotifPrefs({ ...newsNotifPrefs, sonDakikaOnly: false, enabled: true })}
-                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative flex flex-col justify-between ${
-                        !newsNotifPrefs.sonDakikaOnly && newsNotifPrefs.enabled
-                          ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-200 shadow-sm'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
-                      }`}
-                    >
-                      {!newsNotifPrefs.sonDakikaOnly && newsNotifPrefs.enabled && (
-                        <span className="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-xs flex items-center gap-1">
-                          <Check className="w-3 h-3" /> SEÇİLİ
-                        </span>
-                      )}
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-2xl">📢</span>
-                          <div>
-                            <h5 className="font-black text-sm text-slate-900">
-                              Tüm Mahalle Haberleri &amp; Bültenler
-                            </h5>
-                            <span className="text-[10px] font-bold text-blue-700 bg-blue-100/90 px-2 py-0.5 rounded-md inline-block mt-0.5">
-                              Tüm İçerikler
-                            </span>
-                          </div>
-                        </div>
-
-                        <p className="text-xs text-slate-600 leading-relaxed">
-                          Son dakika haberlerinin yanı sıra mahalle park açılışları, esnaf indirimleri, belediye duyuruları, temizlik programları ve kültürel etkinliklerin tümü için anlık bildirim alırsınız.
-                        </p>
-
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          <span className="text-[10px] bg-white border border-blue-200 text-blue-800 font-semibold px-2 py-0.5 rounded-md">🌳 Park &amp; Çevre</span>
-                          <span className="text-[10px] bg-white border border-blue-200 text-blue-800 font-semibold px-2 py-0.5 rounded-md">🛒 Esnaf Kampanyaları</span>
-                          <span className="text-[10px] bg-white border border-blue-200 text-blue-800 font-semibold px-2 py-0.5 rounded-md">🎉 Etkinlikler</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-3 mt-3 border-t border-blue-100 flex items-center justify-between text-[11px]">
-                        <span className="text-slate-500 font-medium">Mahalledeki hiçbir gelişmeyi kaçırmazsınız.</span>
-                        <span className="font-black text-blue-600">Seç ve Kaydet →</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                {/* Kategori bazlı bildirim tercihleri */}
+                <NotificationPrefsCard
+                  prefs={notifPrefs}
+                  onChange={handleSaveNotifPrefs}
+                  isUsta={isUstaProfile(profile)}
+                  masterEnabled={newsNotifPrefs.enabled}
+                />
 
                 {/* Bildirim Kanalları & Uyarı Biçimleri */}
                 <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
@@ -7635,7 +7628,7 @@ export default function App() {
                           <Bell className="w-4 h-4" />
                         </div>
                         <div>
-                          <span className="text-xs font-black text-slate-900 block">Anlık Haber Bildirimleri (Genel Anahtar)</span>
+                          <span className="text-xs font-black text-slate-900 block">Anlık Bildirimler (Genel Anahtar)</span>
                           <span className="text-[11px] text-slate-500 block">Tüm haber bildirim sistemini geçici olarak kapatır ya da açar.</span>
                         </div>
                       </div>
@@ -7701,51 +7694,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Filtre Karşılaştırma Tablosu */}
-                <div className="bg-slate-50 rounded-3xl p-5 border border-slate-200/80 space-y-3">
-                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Info className="w-4 h-4 text-blue-600" />
-                    <span>Haber Filtresi Karşılaştırma Rehberi</span>
-                  </h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-500">
-                          <th className="py-2 pr-3">Haber Konusu</th>
-                          <th className="py-2 px-3 text-red-600">🚨 Sadece Son Dakika (Mevcut)</th>
-                          <th className="py-2 pl-3 text-blue-600">📢 Tüm Haberler</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-slate-700">
-                        <tr>
-                          <td className="py-2.5 pr-3 font-semibold">Acil Su / Elektrik / Gaz Kesintisi</td>
-                          <td className="py-2.5 px-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                          <td className="py-2.5 pl-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                        </tr>
-                        <tr>
-                          <td className="py-2.5 pr-3 font-semibold">Muhtarlık Acil Güvenlik &amp; Flaş Duyurusu</td>
-                          <td className="py-2.5 px-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                          <td className="py-2.5 pl-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                        </tr>
-                        <tr>
-                          <td className="py-2.5 pr-3 font-semibold">Park, Yeşil Alan ve Sosyal Tesis Açılışı</td>
-                          <td className="py-2.5 px-3 font-bold text-slate-400">⛔ Filtrelenir (Sessiz)</td>
-                          <td className="py-2.5 pl-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                        </tr>
-                        <tr>
-                          <td className="py-2.5 pr-3 font-semibold">Esnaf Hafta Sonu İndirim Kampanyası</td>
-                          <td className="py-2.5 px-3 font-bold text-slate-400">⛔ Filtrelenir (Sessiz)</td>
-                          <td className="py-2.5 pl-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                        </tr>
-                        <tr>
-                          <td className="py-2.5 pr-3 font-semibold">Sokak Temizlik ve Asfalt Programı</td>
-                          <td className="py-2.5 px-3 font-bold text-slate-400">⛔ Filtrelenir (Sessiz)</td>
-                          <td className="py-2.5 pl-3 font-black text-emerald-600">✅ Anında Bildirilir</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -8217,7 +8165,7 @@ export default function App() {
                   <div
                     key={notif.id}
                     onClick={() => {
-                      if (notif.type === 'yeni_talep' || notif.type === 'yeni_teklif' || notif.type === 'teklif_kabul') {
+                      if (notif.target) {
                         handleOpenDerivedNotification(notif);
                       } else if (notif.type === 'sondakika') {
                         if (newsItems[0]) handleOpenNewsDetail(newsItems[0]);
