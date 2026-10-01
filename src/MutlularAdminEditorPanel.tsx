@@ -1,4 +1,5 @@
 import { type LiveConfig, EMPTY_LIVE, toEmbedUrl } from './liveStream';
+import { AdminDataManager } from './AdminDataManager';
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
@@ -27,13 +28,6 @@ import { type SampleNewsItem } from './mockNeighborhoodData';
 import PhotoUploadField from './PhotoUploadField';
 import { type UserProfile, type UserRole } from './firebase';
 
-export interface AdminContentSection {
-  col: string;
-  label: string;
-  emoji: string;
-  items: { id: string; title: string; sub?: string }[];
-}
-
 interface MutlularAdminEditorPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -55,7 +49,6 @@ interface MutlularAdminEditorPanelProps {
   onApproveTip: (tip: SampleNewsItem) => Promise<void>;
   onRejectTip: (tip: SampleNewsItem, reason?: string) => Promise<void>;
   onDeleteNews: (id?: string, title?: string) => Promise<void>;
-  contentSections?: AdminContentSection[];
   liveConfig?: LiveConfig;
   onSaveLive?: (cfg: LiveConfig) => Promise<boolean>;
   pendingBusinesses?: any[];
@@ -69,12 +62,10 @@ interface MutlularAdminEditorPanelProps {
   pendingDeceased?: { id: string; fullName: string; age?: number; family?: string; mosque?: string; prayerTime?: string; cemetery?: string; dateStr?: string; authorName?: string }[];
   onApproveDeceased?: (d: any) => Promise<void>;
   onRejectDeceased?: (d: any) => Promise<void>;
-  onDeleteContent?: (col: string, id: string) => Promise<void>;
-  onDeleteAllContent?: (col: string) => Promise<void>;
   onUpdateUserRole: (targetUid: string, newRole: UserRole, targetEmail?: string) => Promise<void>;
   onSwitchDemoRole?: (role: UserRole) => void;
   activeDemoRole?: UserRole;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, isError?: boolean) => void;
 }
 
 export function MutlularAdminEditorPanel({
@@ -89,7 +80,6 @@ export function MutlularAdminEditorPanel({
   onApproveTip,
   onRejectTip,
   onDeleteNews,
-  contentSections = [],
   liveConfig = EMPTY_LIVE,
   onSaveLive,
   pendingBusinesses = [],
@@ -103,8 +93,6 @@ export function MutlularAdminEditorPanel({
   pendingDeceased = [],
   onApproveDeceased,
   onRejectDeceased,
-  onDeleteContent,
-  onDeleteAllContent,
   onUpdateUserRole,
   onSwitchDemoRole,
   activeDemoRole = 'admin',
@@ -147,43 +135,7 @@ export function MutlularAdminEditorPanel({
   const [shareGroup, setShareGroup] = useState<string>('haber');
   const [shareSearch, setShareSearch] = useState('');
 
-  // İçerik yönetimi state
-  const [contentCol, setContentCol] = useState<string>('haberler');
-  const [contentSearch, setContentSearch] = useState('');
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-
   if (!isOpen) return null;
-
-  const activeSection = contentSections.find(sec => sec.col === contentCol) || contentSections[0];
-  const visibleContentItems = (activeSection?.items || []).filter(it => {
-    if (!contentSearch.trim()) return true;
-    const q = contentSearch.toLowerCase();
-    return it.title.toLowerCase().includes(q) || (it.sub || '').toLowerCase().includes(q);
-  });
-
-  const handleDeleteOne = async (col: string, id: string, title: string) => {
-    if (!onDeleteContent || !id) return;
-    if (!confirm(`"${title}" kalıcı olarak silinsin mi?`)) return;
-    setBusyKey(col + ':' + id);
-    try {
-      await onDeleteContent(col, id);
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  const handleDeleteAll = async (sec: AdminContentSection) => {
-    if (!onDeleteAllContent) return;
-    if (!confirm(`"${sec.label}" bölümündeki TÜM kayıtlar kalıcı olarak silinecek. Devam edilsin mi?`)) return;
-    const typed = window.prompt('Onaylamak için SİL yazın:');
-    if ((typed || '').trim().toLocaleUpperCase('tr-TR') !== 'SİL') return;
-    setBusyKey(sec.col + ':ALL');
-    try {
-      await onDeleteAllContent(sec.col);
-    } finally {
-      setBusyKey(null);
-    }
-  };
 
   // Filter tips
   const tips = newsItems.filter(n => n.status === 'pending' || n.isTip || n.id?.startsWith('ihbar_'));
@@ -1160,71 +1112,7 @@ export function MutlularAdminEditorPanel({
           )}
 
           {activeTab === 'manage_content' && isAdmin && (
-            <div className="space-y-4">
-              <div className="bg-red-50 border border-red-200 rounded-2xl p-3 text-xs text-red-800">
-                Burada haber, ilan, kayıp eşya, usta talebi, davetiye, kampanya, kürsü ve vefat kayıtlarının hepsini kalıcı olarak silebilirsiniz. Silinen kayıt geri getirilemez.
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {contentSections.map(sec => (
-                  <button
-                    key={sec.col}
-                    onClick={() => { setContentCol(sec.col); setContentSearch(''); }}
-                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
-                      activeSection?.col === sec.col
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {sec.emoji} {sec.label} ({sec.items.length})
-                  </button>
-                ))}
-              </div>
-
-              {activeSection && (
-                <>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-                    <input
-                      value={contentSearch}
-                      onChange={(e) => setContentSearch(e.target.value)}
-                      placeholder="Bu bölümde ara…"
-                      className="w-full sm:max-w-xs text-xs p-2.5 bg-white border border-slate-200 rounded-xl"
-                    />
-                    <button
-                      onClick={() => handleDeleteAll(activeSection)}
-                      disabled={busyKey === activeSection.col + ':ALL'}
-                      className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-[11px] font-black flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>{activeSection.label} bölümünün tümünü sil</span>
-                    </button>
-                  </div>
-
-                  <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-                    {visibleContentItems.length === 0 && (
-                      <div className="p-6 text-center text-xs text-slate-500">Bu bölümde kayıt yok.</div>
-                    )}
-                    {visibleContentItems.map((it, idx) => (
-                      <div key={(it.id || 'x') + idx} className="p-3 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-xs font-black text-slate-900 truncate">{it.title}</div>
-                          {it.sub && <div className="text-[11px] text-slate-500 truncate">{it.sub}</div>}
-                        </div>
-                        <button
-                          onClick={() => handleDeleteOne(activeSection.col, it.id, it.title)}
-                          disabled={!it.id || busyKey === activeSection.col + ':' + it.id}
-                          className="shrink-0 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-700 text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                          title="Kaydı sil"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Sil</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <AdminDataManager currentUid={currentUser?.uid} onToast={showToast} />
           )}
 
           {activeTab === 'manage_roles' && (

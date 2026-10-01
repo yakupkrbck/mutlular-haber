@@ -43,14 +43,6 @@ import {
   type MahalleDavetTebrik
 } from './firebase';
 import {
-  INITIAL_NEWS,
-  INITIAL_MARKETPLACE,
-  INITIAL_LOST_FOUND,
-  INITIAL_SERVICES,
-  INITIAL_CAMPAIGNS,
-  INITIAL_KURSUS,
-  INITIAL_INVITATIONS,
-  INITIAL_USERS,
   type SampleNewsItem
 } from './mockNeighborhoodData';
 import { MutlularAdminEditorPanel } from './MutlularAdminEditorPanel';
@@ -976,7 +968,7 @@ export default function App() {
   const [realRole, setRealRole] = useState<UserRole>('sakin');
   // Kayıt / Google girişi sırasında otomatik "sakin" profil oluşturulmasını engeller (yarış durumu)
   const suppressAutoProfileRef = useRef(false);
-  const [allUsersList, setAllUsersList] = useState<UserProfile[]>(INITIAL_USERS);
+  const [allUsersList, setAllUsersList] = useState<UserProfile[]>([]);
   const [showAdminPanelModal, setShowAdminPanelModal] = useState<boolean>(false);
 
   // ── MOCKUP GÖRSELİ DETAY VE MODAL STATE'LERİ ──
@@ -1176,11 +1168,11 @@ export default function App() {
   const [campaignFilter, setCampaignFilter] = useState('tumu');
 
   // Feeds with fallback to initial sample data
-  const [newsItems, setNewsItems] = useState<SampleNewsItem[]>(INITIAL_NEWS);
-  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(INITIAL_MARKETPLACE);
-  const [lostFoundItems, setLostFoundItems] = useState<LostFoundItem[]>(INITIAL_LOST_FOUND);
-  const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>(INITIAL_SERVICES);
-  const [campaigns, setCampaigns] = useState<EsnafCampaign[]>(INITIAL_CAMPAIGNS);
+  const [newsItems, setNewsItems] = useState<SampleNewsItem[]>([]);
+  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>([]);
+  const [lostFoundItems, setLostFoundItems] = useState<LostFoundItem[]>([]);
+  const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
+  const [campaigns, setCampaigns] = useState<EsnafCampaign[]>([]);
   const [offersMap, setOffersMap] = useState<Record<string, ServiceOffer[]>>({});
   const [notifSeenAt, setNotifSeenAt] = useState<number>(0);
   const [customAreas, setCustomAreas] = useState<HizmetAlani[]>([]);
@@ -1234,7 +1226,7 @@ export default function App() {
   ], [customAreas]);
 
   // ── 💍 MAHALLE CEMİYET & DAVETLERİ STATE ──
-  const [invitationItems, setInvitationItems] = useState<MahalleDavetItem[]>(INITIAL_INVITATIONS);
+  const [invitationItems, setInvitationItems] = useState<MahalleDavetItem[]>([]);
   const [davetCategoryFilter, setDavetCategoryFilter] = useState<string>('all');
   const [davetSearch, setDavetSearch] = useState<string>('');
   const [showDavetModal, setShowDavetModal] = useState<boolean>(false);
@@ -1341,7 +1333,7 @@ export default function App() {
   };
 
   // Mahalle Kürsüsü (Serbest Görüş & Dert Anlatma) State
-  const [kursuItems, setKursuItems] = useState<MahalleKursusuItem[]>(INITIAL_KURSUS);
+  const [kursuItems, setKursuItems] = useState<MahalleKursusuItem[]>([]);
   const [kursuCategoryFilter, setKursuCategoryFilter] = useState<string>('Hepsi');
   const [showKursuModal, setShowKursuModal] = useState<boolean>(false);
   const [activeCommentKursuId, setActiveCommentKursuId] = useState<string | null>(null);
@@ -2129,46 +2121,12 @@ export default function App() {
     // Kullanıcılar (Rol Yönetimi için)
     const qUsers = query(collection(db, 'users'), limit(50));
     const unsubUsers = onSnapshot(qUsers, (snap) => {
-      if (!snap.empty) {
-        const uList: UserProfile[] = [];
-        snap.forEach((d) => {
-          uList.push({ ...d.data(), uid: d.id } as UserProfile);
-        });
-        // INITIAL_USERS ile birleştirerek demo hesapların da görünmesini sağla
-        const merged = [...uList];
-        for (const initU of INITIAL_USERS) {
-          if (!merged.some(u => u.uid === initU.uid || u.email === initU.email)) {
-            merged.push(initU);
-          }
-        }
-        setAllUsersList(merged);
-      }
+      const uList: UserProfile[] = [];
+      snap.forEach((d) => {
+        uList.push({ ...d.data(), uid: d.id } as UserProfile);
+      });
+      setAllUsersList(uList);
     }, (err) => console.warn('users firestore:', err.message));
-
-    // İlk açılışta canlı veritabanı boşsa otomatik başlangıç verilerini senkronize et
-    const autoSeedIfClean = async () => {
-      try {
-        const hasSeeded = localStorage.getItem('dijitalmutlular_auto_seeded_v1');
-        if (!hasSeeded) {
-          const markerRef = doc(db, 'system', 'seed_marker');
-          const markerSnap = await getDoc(markerRef);
-          if (!markerSnap.exists()) {
-            await handleSeedAllToFirestore(true);
-            await setDoc(markerRef, { seededAt: serverTimestamp(), version: '1.0' });
-          }
-          localStorage.setItem('dijitalmutlular_auto_seeded_v1', 'true');
-        }
-      } catch (e: any) {
-        // Suppress offline / unavailable warning during initial boot check
-        if (e?.message?.includes('unavailable') || e?.message?.includes('client is offline')) {
-          return;
-        }
-        console.warn('Auto-seed check note:', e.message);
-      }
-    };
-    // Otomatik örnek veri yüklemesi kapatıldı: silinen test verileri geri gelmesin.
-    // Örnek veri gerekirse yönetici panelindeki manuel aktarım düğmesi kullanılır.
-    void autoSeedIfClean;
 
     return () => {
       unsubNews();
@@ -2939,66 +2897,6 @@ export default function App() {
     showToast('Kayıt silindi. 🗑️');
   };
 
-  // ── Yönetici: tüm içerik türleri için silme (haber, ilan, kayıp eşya, talep, davet, kampanya, kürsü, vefat) ──
-  const adminContentSetters: Record<string, (fn: (prev: any[]) => any[]) => void> = {
-    haberler: setNewsItems as any,
-    marketplace_items: setMarketplaceItems as any,
-    lost_found_items: setLostFoundItems as any,
-    service_requests: setServiceRequests as any,
-    mahalle_davetleri: setInvitationItems as any,
-    esnaf_kampanyalar: setCampaigns as any,
-    mahalle_kursusu: setKursuItems as any,
-    cenaze_ilanlari: setDeceasedList as any,
-    hizmet_alanlari: setCustomAreas as any
-  };
-
-  const describeDeleteError = (e: any) =>
-    e?.code === 'permission-denied'
-      ? 'yetkiniz yok (yönetici e-postanızı doğrulayıp yeniden giriş yapın; Firestore kuralları yayınlı olmalı)'
-      : (e?.message || 'bilinmeyen hata');
-
-  const handleAdminDeleteContent = async (col: string, id: string): Promise<void> => {
-    if (!isUserAdmin) {
-      showToast('Bu işlem yalnızca yöneticiye açıktır.', true);
-      return;
-    }
-    try {
-      if (col === 'service_requests') {
-        const offerSnap = await getDocs(query(collection(db, 'offers'), where('requestId', '==', id)));
-        await Promise.all(offerSnap.docs.map(d => deleteDoc(d.ref)));
-      }
-      await deleteDoc(doc(db, col, id));
-      adminContentSetters[col]?.(prev => prev.filter((x: any) => x.id !== id));
-      showToast('Kayıt silindi. 🗑️');
-    } catch (e: any) {
-      showToast('Silinemedi: ' + describeDeleteError(e), true);
-    }
-  };
-
-  const handleAdminDeleteAllContent = async (col: string): Promise<void> => {
-    if (!isUserAdmin) {
-      showToast('Bu işlem yalnızca yöneticiye açıktır.', true);
-      return;
-    }
-    try {
-      const snap = await getDocs(collection(db, col));
-      if (col === 'service_requests') {
-        const offerSnap = await getDocs(collection(db, 'offers'));
-        await Promise.all(offerSnap.docs.map(d => deleteDoc(d.ref)));
-      }
-      const results = await Promise.allSettled(snap.docs.map(d => deleteDoc(d.ref)));
-      const failed = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
-      if (failed.length === 0) {
-        adminContentSetters[col]?.(() => []);
-        showToast(`${snap.size} kayıt silindi. 🗑️`);
-      } else {
-        showToast(`${snap.size - failed.length} kayıt silindi, ${failed.length} kayıt silinemedi: ` + describeDeleteError(failed[0].reason), true);
-      }
-    } catch (e: any) {
-      showToast('Silinemedi: ' + describeDeleteError(e), true);
-    }
-  };
-
   const handleUpdateUserRole = async (targetUid: string, newRole: UserRole, targetEmail?: string) => {
     try {
       if (targetUid.startsWith('email_') && targetEmail) {
@@ -3300,69 +3198,6 @@ export default function App() {
         };
       };
     });
-  };
-
-  // Seed sample data to Firestore with 1-click
-  const handleSeedAllToFirestore = async (silent = false) => {
-    if (!silent) showToast('Örnek veriler canlı veritabanına aktarılıyor…');
-    try {
-      // 1. News
-      for (const item of INITIAL_NEWS) {
-        await addDoc(collection(db, 'haberler'), {
-          ...item,
-          createdAt: serverTimestamp()
-        });
-      }
-      // 2. Marketplace (Emlak & 2. El)
-      for (const item of INITIAL_MARKETPLACE) {
-        await addDoc(collection(db, 'marketplace_items'), {
-          ...item,
-          uid: user?.uid || 'sakin_1',
-          createdAt: serverTimestamp()
-        });
-      }
-      // 3. Lost & Found
-      for (const item of INITIAL_LOST_FOUND) {
-        await addDoc(collection(db, 'lost_found_items'), {
-          ...item,
-          uid: user?.uid || 'sakin_1',
-          createdAt: serverTimestamp()
-        });
-      }
-      // 4. Services
-      for (const item of INITIAL_SERVICES) {
-        await addDoc(collection(db, 'service_requests'), {
-          ...item,
-          createdAt: serverTimestamp()
-        });
-      }
-      // 5. Invitations (Mahalle Davetleri: Düğün, Nişan, Sünnet)
-      for (const item of INITIAL_INVITATIONS) {
-        await addDoc(collection(db, 'mahalle_davetleri'), {
-          ...item,
-          uid: user?.uid || 'davet_demo',
-          createdAt: serverTimestamp()
-        });
-      }
-      // 6. Campaigns
-      for (const item of INITIAL_CAMPAIGNS) {
-        await addDoc(collection(db, 'esnaf_kampanyalar'), {
-          ...item,
-          createdAt: serverTimestamp()
-        });
-      }
-      // 7. Kursu
-      for (const item of INITIAL_KURSUS) {
-        await addDoc(collection(db, 'mahalle_kursusu'), {
-          ...item,
-          createdAt: serverTimestamp()
-        });
-      }
-      // Vefat ilanları örnek veriden yüklenmez: gerçek kişilere ait olmayan sahte kayıt oluşmasın.
-      if (!silent) showToast('Tüm mahalle veritabanı (Davetler, Emlak, 2.El, Haberler) başarıyla buluta aktarıldı! 🎉');
-    } catch (e: any) {
-      if (!silent) showToast('Aktarım hatası: ' + e.message, true);
-    }
   };
 
   // Vefat / Cenaze & Taziye İlanı Yayınlama (giriş gerekir; ilanı bırakan kişi kaydedilir)
@@ -4555,150 +4390,64 @@ export default function App() {
   const [showMutlularShareModal, setShowMutlularShareModal] = useState<boolean>(false);
   const [showSearchModal, setShowSearchModal] = useState<boolean>(false);
 
+  // Vitrin yalnızca gerçek kayıtlardan oluşur; kayıt yoksa o slayt hiç gösterilmez (uydurma başlık/fiyat yok).
   const vitrinSlideItems: VitrinItem[] = useMemo(() => {
-    const topNews = newsItems[0] || INITIAL_NEWS[0];
-    const topEmlak = marketplaceItems.find(i => i.ilanTuru === 'emlak' || (i.kategori && i.kategori.toLowerCase().includes('emlak'))) || marketplaceItems[0];
-    const topIkinciEl = marketplaceItems.find(i => i.ilanTuru === 'ikinci_el' || (i.kategori && !i.kategori.toLowerCase().includes('emlak'))) || marketplaceItems[1];
-    
-    return [
-      {
+    const slides: VitrinItem[] = [];
+    const topNews = newsItems.find((n) => n.status === 'approved') || undefined;
+    const activeMarket = marketplaceItems.filter((i) => !i.status || i.status === 'active');
+    const topEmlak = activeMarket.find((i) => i.ilanTuru === 'emlak' || (i.kategori && i.kategori.toLowerCase().includes('emlak')));
+    const topIkinciEl = activeMarket.find((i) => i !== topEmlak && (i.ilanTuru === 'ikinci_el' || (i.kategori && !i.kategori.toLowerCase().includes('emlak'))));
+
+    if (topNews) {
+      slides.push({
         id: 'vitrin-haber',
         categoryType: 'haber',
         categoryLabel: 'SON HABER',
         categoryIcon: '📰',
         categoryBadgeClass: 'bg-red-600 text-white',
-        title: topNews?.baslik || "Mehmet Akif Mahallesi'nde Önemli Gelişme Yaşandı",
-        subtitle: topNews?.ozet || "Mahallemizdeki son dakika gelişmeler ve güncel bülten detayları.",
+        title: topNews.baslik,
+        subtitle: topNews.ozet || '',
         actionText: 'Haberi Oku →',
-        imageUrl: topNews?.imageURL || 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1200&q=80',
-        meta: 'Flaş Haber • Yeni',
+        imageUrl: topNews.imageURL || 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1200&q=80',
+        meta: topNews.kategori || 'Mahalle Haberi',
         dataRef: topNews
-      },
-      {
+      } as VitrinItem);
+    }
+    if (topEmlak) {
+      slides.push({
         id: 'vitrin-emlak',
         categoryType: 'emlak',
         categoryLabel: 'EMLAK',
         categoryIcon: '🏠',
         categoryBadgeClass: 'bg-amber-500 text-slate-950 font-black',
-        title: topEmlak?.baslik || "Mehmet Akif Mahallesi'nde Satılık 3+1 Daire",
-        subtitle: `${topEmlak?.fiyat ? topEmlak.fiyat.toLocaleString('tr-TR') + ' TL' : '2.450.000 TL'} • ${topEmlak?.odaSayisi || '3+1'} • ${topEmlak?.aciklama?.slice(0, 90) || 'Kombili, asansörlü ferah daire.'}`,
+        title: topEmlak.baslik,
+        subtitle: [typeof topEmlak.fiyat === 'number' ? topEmlak.fiyat.toLocaleString('tr-TR') + ' TL' : '', topEmlak.odaSayisi, topEmlak.aciklama ? String(topEmlak.aciklama).slice(0, 90) : ''].filter(Boolean).join(' • '),
         actionText: 'İlanı Gör →',
-        imageUrl: topEmlak?.fotolar?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=80',
-        meta: 'Günün Emlak Fırsatı',
+        imageUrl: topEmlak.fotolar?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=80',
+        meta: 'Emlak İlanı',
         dataRef: topEmlak
-      },
-      {
+      } as VitrinItem);
+    }
+    if (topIkinciEl) {
+      slides.push({
         id: 'vitrin-ikinciel',
         categoryType: 'ikinci_el',
         categoryLabel: '2. EL',
         categoryIcon: '🚗',
         categoryBadgeClass: 'bg-blue-600 text-white',
-        title: topIkinciEl?.baslik || "Sahibinden Satılık Temiz Araç & Eşya",
-        subtitle: `${topIkinciEl?.fiyat ? topIkinciEl.fiyat.toLocaleString('tr-TR') + ' TL' : '1.450 TL'} • ${topIkinciEl?.aciklama?.slice(0, 90) || 'Komşumuzdan tertemiz az kullanılmış ürün.'}`,
+        title: topIkinciEl.baslik,
+        subtitle: [typeof topIkinciEl.fiyat === 'number' ? topIkinciEl.fiyat.toLocaleString('tr-TR') + ' TL' : '', topIkinciEl.aciklama ? String(topIkinciEl.aciklama).slice(0, 90) : ''].filter(Boolean).join(' • '),
         actionText: 'İlanı Gör →',
-        imageUrl: topIkinciEl?.fotolar?.[0] || 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=1200&q=80',
-        meta: 'Uygun Fiyatlı 2. El',
+        imageUrl: topIkinciEl.fotolar?.[0] || 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=1200&q=80',
+        meta: '2. El İlanı',
         dataRef: topIkinciEl
-      },
-      {
-        id: 'vitrin-hizmet',
-        categoryType: 'hizmet',
-        categoryLabel: 'USTALAR / HİZMET',
-        categoryIcon: '🔧',
-        categoryBadgeClass: 'bg-emerald-600 text-white',
-        title: 'Mustafa Usta — Tesisat, Kombi & Isıtma',
-        subtitle: '⭐ 4.9 (88 Değerlendirme) • 25 yıllık mahalle tecrübesi, garantili işçilik ve kaçak tespiti.',
-        actionText: 'Profili Gör →',
-        imageUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=1200&q=80',
-        meta: 'Haftanın Onaylı Ustası',
-        dataRef: {
-          id: 'usta_mustafa',
-          name: 'Mustafa Usta',
-          profession: 'Sıhhi Tesisat, Kombi & Kalorifer',
-          phone: '05329998811',
-          rating: 4.9,
-          reviewCount: 88,
-          neighborhood: 'Mehmet Akif Mah.',
-          avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=200&q=80'
-        }
-      }
-    ];
+      } as VitrinItem);
+    }
+    return slides;
   }, [newsItems, marketplaceItems]);
 
-  const neighborhoodMastersList: NeighborhoodMaster[] = [
-    {
-      id: 'usta_1',
-      name: 'Mustafa Usta',
-      profession: 'Sıhhi Tesisat & Kombi',
-      category: 'tesisat',
-      phone: '05329998811',
-      rating: 4.9,
-      reviewCount: 88,
-      neighborhood: 'Mehmet Akif Mah.',
-      avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=200&q=80',
-      experience: '25 Yıl'
-    },
-    {
-      id: 'usta_2',
-      name: 'Mehmet Usta',
-      profession: 'Elektrik, Avize & Tesisat',
-      category: 'elektrik',
-      phone: '05321112233',
-      rating: 4.9,
-      reviewCount: 128,
-      neighborhood: 'Mehmet Akif Mah.',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-      experience: '18 Yıl'
-    },
-    {
-      id: 'usta_3',
-      name: 'Hasan Usta',
-      profession: 'Boya, Badana & Alçıpan',
-      category: 'boya',
-      phone: '05423334455',
-      rating: 4.8,
-      reviewCount: 64,
-      neighborhood: 'Mehmet Akif Mah.',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80',
-      experience: '15 Yıl'
-    },
-    {
-      id: 'usta_4',
-      name: 'Ali Usta',
-      profession: 'Klima Servisi & Bakım',
-      category: 'klima',
-      phone: '05357778899',
-      rating: 4.9,
-      reviewCount: 92,
-      neighborhood: 'Mehmet Akif Mah.',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80',
-      experience: '12 Yıl'
-    },
-    {
-      id: 'usta_5',
-      name: 'Ahmet Usta',
-      profession: 'Oto Tamir & Mekanik Bakım',
-      category: 'tamir',
-      phone: '05445556677',
-      rating: 4.8,
-      reviewCount: 45,
-      neighborhood: 'Mehmet Akif Mah.',
-      avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=200&q=80',
-      experience: '20 Yıl'
-    },
-    {
-      id: 'usta_6',
-      name: 'Selma Hanım',
-      profession: 'Ev & Ofis Detaylı Temizlik',
-      category: 'temizlik',
-      phone: '05362223344',
-      rating: 5.0,
-      reviewCount: 56,
-      neighborhood: 'Mehmet Akif Mah.',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
-      experience: '10 Yıl'
-    }
-  ];
+  // Mahalle usta listesi: örnek (sahte) usta kalmadı. Gerçek ustalar kayıt ve onaydan sonra FAZ 5'te buraya bağlanacak.
+  const neighborhoodMastersList: NeighborhoodMaster[] = [];
 
   const handleSelectVitrinItem = (item: VitrinItem) => {
     if (item.categoryType === 'haber') {
@@ -4840,17 +4589,6 @@ export default function App() {
 
   const headerBrand = getHeaderBrand();
 
-  const adminContentSections = [
-    { col: 'haberler', label: 'Haberler', emoji: '📰', items: newsItems.map((n: any) => ({ id: n.id || '', title: n.baslik || '(başlıksız)', sub: [n.kategori, n.authorName, n.status === 'pending' ? 'Onay bekliyor' : ''].filter(Boolean).join(' • ') })) },
-    { col: 'marketplace_items', label: 'Emlak & 2. El İlanları', emoji: '🏷️', items: marketplaceItems.map((m: any) => ({ id: m.id || '', title: m.baslik || '(başlıksız)', sub: [m.kategori, m.saticiAdi].filter(Boolean).join(' • ') })) },
-    { col: 'lost_found_items', label: 'Kayıp Eşya', emoji: '🔎', items: lostFoundItems.map((l: any) => ({ id: l.id || '', title: l.baslik || '(başlıksız)', sub: [l.tur, l.kategori].filter(Boolean).join(' • ') })) },
-    { col: 'service_requests', label: 'Usta Talepleri', emoji: '🛠️', items: serviceRequests.map((r: any) => ({ id: r.id || '', title: r.baslik || '(başlıksız)', sub: [r.kategori, r.authorName].filter(Boolean).join(' • ') })) },
-    { col: 'mahalle_davetleri', label: 'Davetiyeler', emoji: '💍', items: invitationItems.map((d: any) => ({ id: d.id || '', title: d.baslik || '(başlıksız)', sub: [d.tur, d.davetSahipleri].filter(Boolean).join(' • ') })) },
-    { col: 'esnaf_kampanyalar', label: 'Esnaf Kampanyaları', emoji: '🏪', items: campaigns.map((c: any) => ({ id: c.id || '', title: c.baslik || '(başlıksız)', sub: [c.isyeriAdi, c.kategori].filter(Boolean).join(' • ') })) },
-    { col: 'mahalle_kursusu', label: 'Mahalle Kürsüsü', emoji: '🎤', items: kursuItems.map((k: any) => ({ id: k.id || '', title: k.baslik || '(başlıksız)', sub: [k.kategori, k.authorName].filter(Boolean).join(' • ') })) },
-    { col: 'hizmet_alanlari', label: 'Faaliyet Alanları', emoji: '🧰', items: customAreas.map((a: any) => ({ id: a.id || '', title: a.ad || '(adsız)', sub: 'Usta tarafından eklendi' })) },
-    { col: 'cenaze_ilanlari', label: 'Vefat İlanları', emoji: '🕊️', items: deceasedList.map((d: any) => ({ id: d.id || '', title: d.fullName || '(isimsiz)', sub: [d.dateStr, d.mosque].filter(Boolean).join(' • ') })) }
-  ];
 
 
   return (
@@ -8102,14 +7840,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleSeedAllToFirestore()}
-                    className="bg-purple-600 hover:bg-purple-500 text-white font-black text-xs px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-2 transition-all cursor-pointer border border-purple-300/40"
-                  >
-                    <span>⚡</span>
-                    <span>Canlı Veritabanını Başlat (Seed)</span>
-                  </button>
                 </div>
 
                 <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10 text-xs text-purple-100/90 leading-relaxed flex items-start gap-2.5">
@@ -13044,7 +12774,6 @@ export default function App() {
         onApproveTip={handleApproveNewsTip}
         onRejectTip={handleRejectNewsTip}
         onDeleteNews={handleDeleteNewsItem}
-        contentSections={adminContentSections}
         liveConfig={liveConfig}
         onSaveLive={handleSaveLive}
         shareSources={adminShareSources}
@@ -13058,8 +12787,6 @@ export default function App() {
         pendingDeceased={pendingDeceased}
         onApproveDeceased={handleApproveDeceased}
         onRejectDeceased={handleRejectDeceased}
-        onDeleteContent={handleAdminDeleteContent}
-        onDeleteAllContent={handleAdminDeleteAllContent}
         onUpdateUserRole={handleUpdateUserRole}
         onSwitchDemoRole={(r) => {
           setDemoRole(r);
