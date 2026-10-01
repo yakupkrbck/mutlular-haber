@@ -25,12 +25,14 @@ import {
   serverTimestamp,
   runTransaction,
   increment,
+  getCountFromServer,
   type User,
   type UserProfile,
   type UserRole,
   type NewsNotificationPreferences,
   type ServiceRequest,
   type ServiceOffer,
+  type Business,
   type HizmetAlani,
   type MarketplaceItem,
   type LostFoundItem,
@@ -67,6 +69,8 @@ import {
 import { ShareStudio, type ShareItem } from './ShareStudio';
 import { NotificationPrefsCard } from './NotificationPrefsCard';
 import { ProfileRoleCard } from './ProfileRoleCard';
+import { BusinessEditor, type BusinessFormData } from './BusinessEditor';
+import { BusinessPage, type BusinessEvent } from './BusinessPage';
 import {
   type NotifPrefs,
   DEFAULT_NOTIF_PREFS,
@@ -1203,9 +1207,23 @@ export default function App() {
   const isRealStaff = Boolean(
     user && (profile?.role === 'admin' || profile?.role === 'editor' || (user.email === 'yakupkrbck@gmail.com' && user.emailVerified))
   );
+  const isRealAdmin = Boolean(
+    user && (profile?.role === 'admin' || (user.email === 'yakupkrbck@gmail.com' && user.emailVerified))
+  );
+  const isEsnafAccount = profile?.role === 'esnaf' && !isUstaProfile(profile);
   // Vefat ilanı onay akışı: editör/yönetici için bekleyenler, kullanıcı için kendi bekleyen/reddedilen ilanları
   const [pendingDeceased, setPendingDeceased] = useState<DeceasedItem[]>([]);
   const [myDeceased, setMyDeceased] = useState<DeceasedItem[]>([]);
+  // FAZ 4: işletme sayfaları (esnaf)
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [myBusiness, setMyBusiness] = useState<Business | null>(null);
+  const [pendingBusinesses, setPendingBusinesses] = useState<Business[]>([]);
+  const [pendingCampaigns, setPendingCampaigns] = useState<EsnafCampaign[]>([]);
+  const [myCampaignsAll, setMyCampaignsAll] = useState<EsnafCampaign[]>([]);
+  const [businessView, setBusinessView] = useState<Business | null>(null);
+  const [showBusinessEditor, setShowBusinessEditor] = useState(false);
+  const [bizStats, setBizStats] = useState<{ views: number; views7: number; call: number; whatsapp: number; share: number; map: number } | null>(null);
+  const trackedRef = useRef<Set<string>>(new Set());
 
   // Ana kategoriler + topluluğun (ustaların "Diğer" ile) eklediği faaliyet alanları
   const ALL_SERVICE_CATEGORIES = useMemo(() => [
@@ -1423,15 +1441,15 @@ export default function App() {
   const [artisanIsSubmitting, setArtisanIsSubmitting] = useState(false);
 
   // Mahalle Pazarı / Esnaf Kampanya Form State
-  const [campIsyeri, setCampIsyeri] = useState('Mutlular Taş Fırını');
+  const [campIsyeri, setCampIsyeri] = useState('');
   const [campKategori, setCampKategori] = useState('Fırın & Unlu Mamül');
   const [campBaslik, setCampBaslik] = useState('Akşam 19:00 Sonrası Tüm Sıcak Ekmek ve Pidelerde %30 İndirim!');
   const [campAciklama, setCampAciklama] = useState('Günün taze taş fırın ekmekleri, simit ve ramazan pidelerinde komşularımıza özel akşam indirimi başlamıştır. İsrafı önlüyor, bereketi paylaşıyoruz.');
-  const [campIndirim, setCampIndirim] = useState('%30 İNDİRİM');
-  const [campRozet, setCampRozet] = useState('Akşam Fırsatı');
-  const [campAdres, setCampAdres] = useState('Mutlular Caddesi No: 14');
-  const [campTelefon, setCampTelefon] = useState('0532 999 88 77');
-  const [campGecerlilik, setCampGecerlilik] = useState('Her Gün 19:00 - 22:00');
+  const [campIndirim, setCampIndirim] = useState('');
+  const [campRozet, setCampRozet] = useState('');
+  const [campAdres, setCampAdres] = useState('');
+  const [campTelefon, setCampTelefon] = useState('');
+  const [campGecerlilik, setCampGecerlilik] = useState('');
   const [campFoto, setCampFoto] = useState('');
 
   // Service Request Edit modal state
@@ -1589,6 +1607,10 @@ export default function App() {
           const snap = await getDoc(doc(db, c.col, deepLink.id!));
           if (snap.exists()) {
             const data = snap.data() as any;
+            if (c.kind === 'isletme') {
+              openBusiness({ ...data, id: snap.id } as Business);
+              return;
+            }
             setSharedContent({
               kind: c.kind,
               type: deepLink.type,
@@ -1692,6 +1714,16 @@ export default function App() {
           category: d.kategori || 'Mahalle Kürsüsü',
           meta: d.konum ? [`📍 ${d.konum}`] : [],
           url: buildContentUrl('duyuru', id, d.baslik)
+        };
+      case 'isletme':
+        return {
+          ...base,
+          imageUrl: (d.fotolar && d.fotolar[0]) || d.logoUrl || undefined,
+          title: d.isyeri,
+          summary: d.aciklama ? String(d.aciklama).substring(0, 180) : '',
+          category: d.kategori || 'İşletme',
+          meta: [d.adres ? `📍 ${d.adres}` : '', d.calismaSaatleri ? `🕒 ${d.calismaSaatleri}` : ''].filter(Boolean),
+          url: buildContentUrl('esnaf', id, d.isyeri)
         };
       case 'kampanya':
         return {
@@ -2021,6 +2053,14 @@ export default function App() {
     }, (err) => console.warn('service firestore:', err.message));
 
     // Campaigns / Mahalle Pazarı
+    // Onaylı işletme sayfaları (esnaf rehberi)
+    const unsubBiz = onSnapshot(query(collection(db, 'businesses'), where('approvalStatus', '==', 'approved')), (snap) => {
+      const items: Business[] = [];
+      snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as Business));
+      items.sort((a, b) => a.isyeri.localeCompare(b.isyeri, 'tr'));
+      setBusinesses(items);
+    }, (err) => console.warn('businesses firestore:', err.message));
+
     const qCamp = query(collection(db, 'esnaf_kampanyalar'), orderBy('createdAt', 'desc'));
     const unsubCamp = onSnapshot(qCamp, (snap) => {
       {
@@ -2031,6 +2071,8 @@ export default function App() {
           const key = (data.isyeriAdi + '-' + data.baslik) || data.id || d.id;
           if (!seen.has(key)) {
             seen.add(key);
+            // Onay bekleyen / reddedilen kampanyalar herkese gösterilmez (eski kayıtlarda durum alanı yoktur: yayında sayılır)
+            if (data.status === 'pending' || data.status === 'rejected') return;
             items.push({ ...data, id: d.id } as EsnafCampaign);
           }
         });
@@ -2136,6 +2178,7 @@ export default function App() {
       unsubAreas();
       unsubLive();
       unsubCamp();
+      unsubBiz();
       unsubKursu();
       unsubDavet();
       unsubDeceased();
@@ -2151,6 +2194,7 @@ export default function App() {
     icerik: string;
     imageURL: string;
     sonDakika: boolean;
+    bildirimKategorisi?: 'sondakika' | 'haber' | 'duyuru' | 'etkinlik';
     authorName?: string;
   }) => {
     const newItem: SampleNewsItem = {
@@ -2309,6 +2353,37 @@ export default function App() {
         push({ id: 'dn_req_' + r.id, type: 'hizmet', category: 'YENİ TALEP', icon: '🛠️', badgeColor: 'bg-orange-600', title: `Size uygun yeni talep: ${r.baslik} (${r.kategori})`, ms, target: { kind: 'talep', id: r.id } });
       });
     }
+    // İşletme sayfası ve kampanya kararları (esnaf)
+    if (isEsnafAccount) {
+      if (myBusiness && (myBusiness.approvalStatus === 'approved' || myBusiness.approvalStatus === 'rejected') && toMillis(myBusiness.reviewedAt)) {
+        const ok = myBusiness.approvalStatus === 'approved';
+        push({
+          id: `dn_biz_${myBusiness.approvalStatus}_${toMillis(myBusiness.reviewedAt)}`,
+          type: 'isletme',
+          category: 'İŞLETME SAYFASI',
+          icon: ok ? '✅' : '❌',
+          badgeColor: ok ? 'bg-emerald-600' : 'bg-red-600',
+          title: ok ? 'İşletme sayfanız onaylandı ve esnaf rehberinde yayınlandı.' : `İşletme sayfanız onaylanmadı${myBusiness.reviewNote ? `: ${myBusiness.reviewNote}` : '.'}`,
+          ms: toMillis(myBusiness.reviewedAt),
+          target: { kind: 'isletme', id: myBusiness.id }
+        });
+      }
+      myCampaignsAll.forEach((c) => {
+        const rms = toMillis(c.reviewedAt);
+        if (!c.id || !rms || (c.status !== 'published' && c.status !== 'rejected')) return;
+        const ok = c.status === 'published';
+        push({
+          id: `dn_camp_${c.id}_${c.status}`,
+          type: 'isletme',
+          category: 'KAMPANYA',
+          icon: ok ? '✅' : '❌',
+          badgeColor: ok ? 'bg-emerald-600' : 'bg-red-600',
+          title: ok ? `Kampanyanız yayınlandı: ${c.baslik}` : `Kampanyanız onaylanmadı: ${c.baslik}${c.reviewNote ? ` (${c.reviewNote})` : ''}`,
+          ms: rms,
+          target: { kind: 'isletme', id: myBusiness?.id || user.uid }
+        });
+      });
+    }
     (Object.values(offersMap) as ServiceOffer[][]).flat().forEach((o) => {
       const ms = toMillis(o.createdAt) || Date.now();
       if (o.requestOwnerUid === user.uid) {
@@ -2319,7 +2394,7 @@ export default function App() {
       }
     });
     return list.sort((a, b) => b.ms - a.ms).slice(0, 50);
-  }, [user?.uid, profile, serviceRequests, offersMap, notifSeenAt, notifReadIds, notifPrefs, newsNotifPrefs.enabled, newsItems, deceasedList, invitationItems, campaigns, lostFoundItems]);
+  }, [user?.uid, profile, serviceRequests, offersMap, notifSeenAt, notifReadIds, notifPrefs, newsNotifPrefs.enabled, newsItems, deceasedList, invitationItems, campaigns, lostFoundItems, isEsnafAccount, myBusiness, myCampaignsAll]);
 
   const allNotifications = useMemo(() => [...derivedNotifications, ...notifications], [derivedNotifications, notifications]);
   const unreadNotifCount = useMemo(() => allNotifications.filter((n: any) => !n.read).length, [allNotifications]);
@@ -2389,10 +2464,271 @@ export default function App() {
       const item = dataToShareItem(kind, d, t.id);
       setSharedContent({ kind, type: KIND_TO_TYPE[kind], id: t.id, data: d, url: item.url });
     };
+    if (t.kind === 'isletme') {
+      if (myBusiness && myBusiness.approvalStatus === 'approved') openBusiness(myBusiness);
+      else setShowBusinessEditor(true);
+      return;
+    }
     if (t.kind === 'cenaze') pick(deceasedList, 'cenaze');
     else if (t.kind === 'davet') pick(invitationItems, 'davet');
     else if (t.kind === 'kampanya') pick(campaigns, 'kampanya');
     else if (t.kind === 'kayip') pick(lostFoundItems, 'kayip');
+  };
+
+  // ── FAZ 4: İŞLETME SAYFALARI VE KAMPANYA ONAYI ──
+  // Esnafın kendi işletme belgesi (sahibi okur)
+  useEffect(() => {
+    if (!user || !isEsnafAccount) {
+      setMyBusiness(null);
+      return;
+    }
+    return onSnapshot(
+      doc(db, 'businesses', user.uid),
+      (snap) => setMyBusiness(snap.exists() ? ({ ...(snap.data() as any), id: snap.id } as Business) : null),
+      (err) => console.warn('myBusiness:', err.message)
+    );
+  }, [user?.uid, isEsnafAccount]);
+
+  // Kullanıcının kendi kampanyaları (her durumda)
+  useEffect(() => {
+    if (!user) {
+      setMyCampaignsAll([]);
+      return;
+    }
+    const q = query(collection(db, 'esnaf_kampanyalar'), where('uid', '==', user.uid));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const items: EsnafCampaign[] = [];
+        snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as EsnafCampaign));
+        items.sort((a, b) => (toMillis(b.createdAt) || Date.now()) - (toMillis(a.createdAt) || Date.now()));
+        setMyCampaignsAll(items);
+      },
+      (err) => console.warn('myCampaigns:', err.message)
+    );
+  }, [user?.uid]);
+
+  // Editör/yönetici: onay bekleyen işletmeler ve kampanyalar
+  useEffect(() => {
+    if (!isRealStaff) {
+      setPendingBusinesses([]);
+      setPendingCampaigns([]);
+      return;
+    }
+    const u1 = onSnapshot(
+      query(collection(db, 'businesses'), where('approvalStatus', '==', 'pending')),
+      (snap) => {
+        const items: Business[] = [];
+        snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as Business));
+        setPendingBusinesses(items);
+      },
+      (err) => console.warn('bekleyen işletmeler:', err.message)
+    );
+    const u2 = onSnapshot(
+      query(collection(db, 'esnaf_kampanyalar'), where('status', '==', 'pending')),
+      (snap) => {
+        const items: EsnafCampaign[] = [];
+        snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as EsnafCampaign));
+        setPendingCampaigns(items);
+      },
+      (err) => console.warn('bekleyen kampanyalar:', err.message)
+    );
+    return () => {
+      u1();
+      u2();
+    };
+  }, [isRealStaff, user?.uid]);
+
+  const errText = (e: any) => (e?.code === 'permission-denied' ? 'yetkiniz yok (Firestore kuralları yayınlandı mı?)' : e?.message || 'bilinmeyen hata');
+
+  const getBusinessFormInitial = (): BusinessFormData => ({
+    isyeri: myBusiness?.isyeri ?? profile?.isyeri ?? '',
+    kategori: myBusiness?.kategori ?? profile?.esnafKategori ?? '',
+    aciklama: myBusiness?.aciklama ?? profile?.esnafAciklama ?? '',
+    logoUrl: myBusiness?.logoUrl ?? '',
+    fotolar: myBusiness?.fotolar ?? [],
+    adres: myBusiness?.adres ?? profile?.adres ?? '',
+    calismaSaatleri: myBusiness?.calismaSaatleri ?? profile?.calismaSaatleri ?? '',
+    telefon: myBusiness?.telefon ?? profile?.telefon ?? '',
+    whatsapp: myBusiness?.whatsapp ?? '',
+    instagram: myBusiness?.instagram ?? '',
+    website: myBusiness?.website ?? ''
+  });
+
+  const handleSaveBusiness = async (data: BusinessFormData): Promise<boolean> => {
+    if (!user || !isEsnafAccount) {
+      showToast('İşletme sayfası yalnızca esnaf hesabıyla oluşturulabilir.', true);
+      return false;
+    }
+    const ref = doc(db, 'businesses', user.uid);
+    const base = {
+      ownerUid: user.uid,
+      isyeri: data.isyeri,
+      kategori: data.kategori,
+      aciklama: data.aciklama,
+      logoUrl: data.logoUrl || '',
+      fotolar: data.fotolar,
+      adres: data.adres,
+      calismaSaatleri: data.calismaSaatleri,
+      telefon: data.telefon,
+      whatsapp: data.whatsapp,
+      instagram: data.instagram,
+      website: data.website,
+      updatedAt: serverTimestamp()
+    };
+    try {
+      if (!myBusiness) {
+        await setDoc(ref, { ...base, approvalStatus: 'pending', createdAt: serverTimestamp() });
+        showToast('İşletme sayfanız onaya gönderildi 🏪');
+      } else if (myBusiness.approvalStatus === 'rejected') {
+        await updateDoc(ref, { ...base, approvalStatus: 'pending', reviewNote: '' });
+        showToast('İşletme sayfanız tekrar onaya gönderildi 🏪');
+      } else {
+        await updateDoc(ref, base);
+        showToast('İşletme bilgileriniz kaydedildi ✅');
+      }
+      return true;
+    } catch (e: any) {
+      showToast('İşletme sayfası kaydedilemedi: ' + errText(e), true);
+      return false;
+    }
+  };
+
+  const handleApproveBusiness = async (b: Business) => {
+    if (!isRealAdmin || !user) return;
+    try {
+      await updateDoc(doc(db, 'businesses', b.id), { approvalStatus: 'approved', reviewedAt: serverTimestamp(), reviewedBy: user.uid, reviewNote: '' });
+      showToast(`"${b.isyeri}" yayınlandı 🏪`);
+    } catch (e: any) {
+      showToast('Onaylanamadı: ' + errText(e), true);
+    }
+  };
+
+  const handleRejectBusiness = async (b: Business) => {
+    if (!isRealAdmin || !user) return;
+    const note = window.prompt('Reddetme nedeni (esnaf görecek):', '');
+    if (note === null) return;
+    try {
+      await updateDoc(doc(db, 'businesses', b.id), { approvalStatus: 'rejected', reviewedAt: serverTimestamp(), reviewedBy: user.uid, reviewNote: note.trim().slice(0, 200) });
+      showToast('İşletme başvurusu reddedildi.');
+    } catch (e: any) {
+      showToast('Reddedilemedi: ' + errText(e), true);
+    }
+  };
+
+  const handleApproveCampaign = async (c: EsnafCampaign) => {
+    if (!isRealStaff || !user || !c.id) return;
+    try {
+      await updateDoc(doc(db, 'esnaf_kampanyalar', c.id), { status: 'published', reviewedAt: serverTimestamp(), reviewedBy: user.uid });
+      showToast(`"${c.baslik}" kampanyası yayınlandı 🏪`);
+    } catch (e: any) {
+      showToast('Onaylanamadı: ' + errText(e), true);
+    }
+  };
+
+  const handleRejectCampaign = async (c: EsnafCampaign) => {
+    if (!isRealStaff || !user || !c.id) return;
+    const note = window.prompt('Reddetme nedeni (esnaf görecek):', '');
+    if (note === null) return;
+    try {
+      await updateDoc(doc(db, 'esnaf_kampanyalar', c.id), { status: 'rejected', reviewedAt: serverTimestamp(), reviewedBy: user.uid, reviewNote: note.trim().slice(0, 200) });
+      showToast('Kampanya reddedildi.');
+    } catch (e: any) {
+      showToast('Reddedilemedi: ' + errText(e), true);
+    }
+  };
+
+  // Görüntülenme ve etkileşim kaydı: giriş yapmış kullanıcı başına günde bir kez (kurallar da bunu zorlar)
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+
+  const trackBusinessView = (b: Business) => {
+    if (!user || user.uid === b.ownerUid) return;
+    const day = todayStr();
+    const key = `v_${b.id}_${day}`;
+    if (trackedRef.current.has(key)) return;
+    trackedRef.current.add(key);
+    setDoc(doc(db, 'businesses', b.id, 'views', `${user.uid}_${day}`), { uid: user.uid, day }).catch(() => {});
+  };
+
+  const trackBusinessEvent = (b: Business, type: BusinessEvent) => {
+    if (!user || user.uid === b.ownerUid) return;
+    const day = todayStr();
+    const key = `e_${b.id}_${type}_${day}`;
+    if (trackedRef.current.has(key)) return;
+    trackedRef.current.add(key);
+    setDoc(doc(db, 'businesses', b.id, 'events', `${user.uid}_${type}_${day}`), { uid: user.uid, type, day }).catch(() => {});
+  };
+
+  const openBusiness = (b: Business) => {
+    setBusinessView(b);
+    trackBusinessView(b);
+  };
+
+  const closeBusiness = () => {
+    setBusinessView(null);
+    window.history.replaceState({}, '', cleanedUrl(window.location, getBase()));
+    resolvedLinkRef.current = '';
+    setDeepLink(null);
+  };
+
+  const loadBizStats = async () => {
+    if (!user || !myBusiness || myBusiness.approvalStatus !== 'approved') {
+      setBizStats(null);
+      return;
+    }
+    const sub = (name: string) => collection(db, 'businesses', user.uid, name);
+    const since = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+    try {
+      const [v, v7, c, w, sh, m] = await Promise.all([
+        getCountFromServer(sub('views')),
+        getCountFromServer(query(sub('views'), where('day', '>=', since))),
+        getCountFromServer(query(sub('events'), where('type', '==', 'call'))),
+        getCountFromServer(query(sub('events'), where('type', '==', 'whatsapp'))),
+        getCountFromServer(query(sub('events'), where('type', '==', 'share'))),
+        getCountFromServer(query(sub('events'), where('type', '==', 'map')))
+      ]);
+      setBizStats({
+        views: v.data().count,
+        views7: v7.data().count,
+        call: c.data().count,
+        whatsapp: w.data().count,
+        share: sh.data().count,
+        map: m.data().count
+      });
+    } catch (e: any) {
+      console.warn('bizStats:', e?.message);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'profile') loadBizStats();
+  }, [activeTab, myBusiness?.approvalStatus, user?.uid]);
+
+  // Kampanya penceresini açmadan önce kontrol: yalnızca onaylı işletmesi olan esnaf (veya editör/yönetici)
+  const openCampaignModal = () => {
+    if (!user) {
+      showToast('Kampanya yayınlamak için önce giriş yapmalısınız.', true);
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (isRealStaff) {
+      setShowCampaignModal(true);
+      return;
+    }
+    if (!isEsnafAccount) {
+      showToast('Kampanya yayınlamak için esnaf hesabı gerekir.', true);
+      return;
+    }
+    if (!myBusiness || myBusiness.approvalStatus !== 'approved') {
+      showToast('Kampanya yayınlamak için önce işletme sayfanızı oluşturup onay almanız gerekir.', true);
+      setShowBusinessEditor(true);
+      return;
+    }
+    setCampIsyeri(myBusiness.isyeri);
+    setCampAdres(myBusiness.adres);
+    setCampTelefon(myBusiness.telefon);
+    setShowCampaignModal(true);
   };
 
   // Usta örnek çalışma fotoğrafları (gerçek yükleme; en fazla 12)
@@ -3971,53 +4307,63 @@ export default function App() {
   // Mahalle Pazarı / Esnaf Kampanya Yayınlama
   const handlePublishCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      showToast('Kampanya yayınlamak için önce giriş yapmalısınız.', true);
+      return;
+    }
+    if (!isRealStaff && !(isEsnafAccount && myBusiness?.approvalStatus === 'approved')) {
+      showToast('Kampanya yayınlamak için onaylı işletme sayfası gerekir.', true);
+      return;
+    }
     if (!campIsyeri || !campBaslik || !campAciklama) {
       showToast('Lütfen dükkan adı, başlık ve açıklamayı doldurun.', true);
       return;
     }
-
+    if (campTelefon.replace(/\D/g, '').length < 10) {
+      showToast('Lütfen geçerli bir telefon numarası yazın.', true);
+      return;
+    }
     if (!campFoto.trim()) {
       showToast('Lütfen kampanya için bir fotoğraf yükleyin.', true);
       return;
     }
     const finalPhoto = campFoto.trim();
 
-    const newCamp: EsnafCampaign = {
-      id: 'camp_' + Date.now(),
-      esnafId: user?.uid || 'guest_esnaf',
-      isyeriAdi: campIsyeri,
-      kategori: campKategori,
-      baslik: campBaslik,
-      aciklama: campAciklama,
-      indirimOrani: campIndirim || '%20 İNDİRİM',
-      rozet: campRozet || 'Günün Fırsatı',
-      fotoUrl: finalPhoto,
-      adres: campAdres || 'Mutlular Mahallesi',
-      telefon: campTelefon || '0532 999 88 77',
-      gecerlilikTarihi: campGecerlilik || 'Süresiz',
-      createdAt: new Date(),
-    };
-
     try {
       await addDoc(collection(db, 'esnaf_kampanyalar'), {
-        ...newCamp,
-        createdAt: serverTimestamp(),
+        uid: user.uid,
+        esnafId: user.uid,
+        authorName: profile?.name || user.displayName || 'Esnaf',
+        isyeriAdi: campIsyeri,
+        kategori: campKategori,
+        baslik: campBaslik,
+        aciklama: campAciklama,
+        indirimOrani: campIndirim,
+        rozet: campRozet,
+        fotoUrl: finalPhoto,
+        fotolar: [finalPhoto],
+        adres: campAdres || myBusiness?.adres || '',
+        telefon: campTelefon,
+        gecerlilikTarihi: campGecerlilik || 'Süresiz',
+        // Esnaf kampanyası editör/yönetici onayına düşer; editör/yönetici doğrudan yayınlar.
+        status: isRealStaff ? 'published' : 'pending',
+        createdAt: serverTimestamp()
       });
     } catch (err: any) {
-      console.warn('Firestore campaign save err:', err.message);
+      showToast('Kampanya kaydedilemedi: ' + errText(err), true);
+      return;
     }
 
-    setCampaigns((prev) => [newCamp, ...prev]);
     setShowCampaignModal(false);
-    showToast('Kampanyanız Mahalle Pazarı\'nda başarıyla yayına alındı! 🏪');
+    showToast(isRealStaff ? 'Kampanya Mahalle Pazarı\'nda yayınlandı 🏪' : 'Kampanyanız editör onayına gönderildi. Onaylanınca yayınlanır 🏪');
   };
 
   // Role & Admin Check
   const isUserAdmin = Boolean((user || profile) && (demoRole === 'admin' || profile?.role === 'admin' || (user?.email === 'yakupkrbck@gmail.com' && user?.emailVerified)));
   const isUserEditor = Boolean((user || profile) && (isUserAdmin || demoRole === 'editor' || profile?.role === 'editor'));
   const pendingTipsCount = useMemo(() => {
-    return newsItems.filter(n => n.status === 'pending').length + pendingDeceased.length;
-  }, [newsItems, pendingDeceased]);
+    return newsItems.filter(n => n.status === 'pending').length + pendingDeceased.length + pendingCampaigns.length + (isRealAdmin ? pendingBusinesses.length : 0);
+  }, [newsItems, pendingDeceased, pendingCampaigns, pendingBusinesses, isRealAdmin]);
 
   // Filtered lists
   const breakingNews = useMemo(() => {
@@ -4467,6 +4813,7 @@ export default function App() {
     ...kursuItems.filter((k) => k.id).map((k) => ({ key: 'k_' + k.id, group: 'duyuru', label: k.baslik, sub: k.kategori || '', item: dataToShareItem('kursu', k, k.id!) })),
     ...marketplaceItems.filter((m) => m.id && m.status === 'active').map((m) => ({ key: 'm_' + m.id, group: 'ilan', label: m.baslik, sub: m.kategori || '', item: dataToShareItem('marketplace', m, m.id!) })),
     ...lostFoundItems.filter((l) => l.id).map((l) => ({ key: 'l_' + l.id, group: 'ilan', label: l.baslik, sub: l.tur === 'bulundu' ? 'Bulundu' : 'Kayıp', item: dataToShareItem('kayip', l, l.id!) })),
+    ...businesses.map((b) => ({ key: 'b_' + b.id, group: 'esnaf', label: b.isyeri, sub: b.kategori, item: dataToShareItem('isletme', b, b.id) })),
     ...campaigns.filter((c) => c.id).map((c) => ({ key: 'e_' + c.id, group: 'esnaf', label: c.baslik, sub: c.isyeriAdi || '', item: dataToShareItem('kampanya', c, c.id!) }))
   ];
 
@@ -7233,7 +7580,13 @@ export default function App() {
                 myRequests={serviceRequests.filter((r) => r.uid === user.uid)}
                 offersByRequest={offersMap}
                 myOffers={(Object.values(offersMap) as ServiceOffer[][]).flat().filter((o) => o.esnafUid === user.uid)}
-                myCampaigns={campaigns.filter((c: any) => c.uid === user.uid || c.authorUid === user.uid)}
+                myCampaigns={myCampaignsAll}
+                business={myBusiness}
+                bizStats={bizStats}
+                onEditBusiness={() => setShowBusinessEditor(true)}
+                onViewBusiness={() => myBusiness && openBusiness(myBusiness)}
+                onNewCampaign={openCampaignModal}
+                onRefreshStats={loadBizStats}
                 pendingCount={pendingTipsCount}
                 onOpenRequest={(r) => {
                   setActiveTab('services');
@@ -7605,6 +7958,7 @@ export default function App() {
                   prefs={notifPrefs}
                   onChange={handleSaveNotifPrefs}
                   isUsta={isUstaProfile(profile)}
+                  isEsnaf={isEsnafAccount}
                   masterEnabled={newsNotifPrefs.enabled}
                 />
 
@@ -7950,163 +8304,107 @@ export default function App() {
                   </h2>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Mutlular mahallemizin güvenilir fırınları, bakkalları, ustaları ve yerel dükkanları.
+                  Mutlular mahallemizin onaylı fırınları, bakkalları ve yerel dükkanları.
                 </p>
               </div>
 
               <div className="px-3.5 py-2 rounded-2xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-2xs">
-                <Store className="w-3.5 h-3.5" /> 45 Onaylı Esnaf
+                <Store className="w-3.5 h-3.5" /> {businesses.length} Onaylı İşletme
               </div>
             </div>
 
-            {/* Kategori Filtresi */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
-              {[
-                { id: 'tumu', label: 'Tüm Esnaflar' },
-                { id: 'firin', label: '🥖 Fırın & Ekmek' },
-                { id: 'market', label: '🛒 Market & Bakkal' },
-                { id: 'tamir', label: '🔧 Tesisat & Tamirat' },
-                { id: 'kasap', label: '🥩 Kasap & Şarküteri' },
-                { id: 'terzi', label: '🧵 Terzi & Kuru Temizleme' },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setEsnafCategoryFilter(item.id)}
-                  className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
-                    esnafCategoryFilter === item.id
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            {/* Kategori filtresi: yalnızca gerçekten var olan işletme türleri */}
+            {(() => {
+              const cats: string[] = Array.from(new Set<string>(businesses.map((b) => b.kategori))).sort((x: string, y: string) => x.localeCompare(y, 'tr'));
+              const filter = esnafCategoryFilter === 'tumu' || cats.includes(esnafCategoryFilter) ? esnafCategoryFilter : 'tumu';
+              const shown = businesses.filter((b) => filter === 'tumu' || b.kategori === filter);
+              return (
+                <>
+                  {cats.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
+                      {['tumu', ...cats].map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => setEsnafCategoryFilter(c)}
+                          className={`px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
+                            filter === c ? 'bg-slate-900 text-white shadow-xs' : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
+                          }`}
+                        >
+                          {c === 'tumu' ? 'Tüm Esnaflar' : c}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-            {/* Esnaf Kartları Listesi */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {[
-                {
-                  id: 'e1',
-                  name: 'Mutlular Taş Fırını',
-                  category: 'Fırın & Unlu Mamüller',
-                  desc: '30 yıldır odun ateşinde taş fırın ekmeği, simit, poğaça ve ramazan pidesi üretimi.',
-                  rating: 4.9,
-                  phone: '0532 999 88 77',
-                  address: 'Mutlular Cad. No: 14',
-                  image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=600&q=80',
-                  badge: 'Günün İndirimi'
-                },
-                {
-                  id: 'e2',
-                  name: 'Yıldız Elektrik & Aydınlatma',
-                  category: 'Elektrik & Aydınlatma',
-                  desc: 'Ev sigorta değişimi, avize montajı, LED aydınlatma ve 7/24 acil arıza servisi.',
-                  rating: 4.8,
-                  phone: '0533 111 22 33',
-                  address: 'Fatih Cad. No: 22',
-                  image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=600&q=80',
-                  badge: 'Yetkili Esnaf'
-                },
-                {
-                  id: 'e3',
-                  name: 'Emek Su Tesisatı & Doğalgaz',
-                  category: 'Tesisat & Sıhhi Tesisat',
-                  desc: 'Kırmadan cihazla su kaçağı tespiti, musluk tamiri, kombi petek temizliği.',
-                  rating: 4.9,
-                  phone: '0544 555 66 77',
-                  address: 'Mutlular Sokak No: 8',
-                  image: 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=600&q=80',
-                  badge: 'Acil Usta'
-                },
-                {
-                  id: 'e4',
-                  name: 'Ekin Bakkal & Şarküteri',
-                  category: 'Market & Bakkal',
-                  desc: 'Taze köy yumurtası, günlük süt, tulum peyniri ve temel ihtiyaç ürünleri.',
-                  rating: 4.7,
-                  phone: '0555 444 33 22',
-                  address: 'Park Meydanı No: 5',
-                  image: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=600&q=80',
-                  badge: 'Gece Açık'
-                },
-                {
-                  id: 'e5',
-                  name: 'Mutlular Kasabı',
-                  category: 'Kasap & Et Ürünleri',
-                  desc: 'Yerli besi dana kıyma, kuşbaşı, kuzu pirzola ve özel ev yapımı köfte.',
-                  rating: 4.9,
-                  phone: '0532 888 77 66',
-                  address: 'Cumhuriyet Cad. No: 18',
-                  image: 'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=600&q=80',
-                  badge: 'Yerli Besi'
-                },
-                {
-                  id: 'e6',
-                  name: 'Terzi Selim Usta',
-                  category: 'Terzi & Tadilat',
-                  desc: 'Pantolon paçası, fermuar değişimi, ceket daraltma ve kuru temizleme teslimat.',
-                  rating: 5.0,
-                  phone: '0535 777 88 99',
-                  address: 'Pazar Yolu No: 3',
-                  image: 'https://images.unsplash.com/photo-1520006403909-838d6b92c22e?auto=format&fit=crop&w=600&q=80',
-                  badge: 'Usta Esnaf'
-                }
-              ].map((shop) => (
-                <div
-                  key={shop.id}
-                  className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between"
-                >
-                  <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
-                    <img
-                      src={shop.image}
-                      alt={shop.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <span className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1 rounded-lg">
-                      {shop.badge}
-                    </span>
-                    <span className="absolute top-3 right-3 bg-emerald-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                      <Star className="w-3 h-3 fill-current" /> {shop.rating}
-                    </span>
-                  </div>
-
-                  <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
-                    <div>
-                      <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                        {shop.category}
-                      </span>
-                      <h4 className="font-black text-sm text-slate-900 mt-1">
-                        {shop.name}
-                      </h4>
-                      <p className="text-xs text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-                        {shop.desc}
+                  {shown.length === 0 && (
+                    <div className="bg-white rounded-3xl p-8 border border-slate-200/90 text-center space-y-3">
+                      <div className="text-4xl">🏪</div>
+                      <h4 className="font-black text-base text-slate-900">Rehberde henüz onaylı işletme yok</h4>
+                      <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                        Mahalle esnafı işletme sayfasını oluşturup onay aldıkça burada listelenecek.
                       </p>
-                      <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-2">
-                        <MapPin className="w-3 h-3 text-slate-400" />
-                        <span className="truncate">{shop.address}</span>
-                      </div>
+                      {isEsnafAccount && (
+                        <button type="button" onClick={() => setShowBusinessEditor(true)} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer">
+                          🏪 İşletme Sayfamı Oluştur
+                        </button>
+                      )}
+                      {!user && (
+                        <button type="button" onClick={() => handleOpenArtisanOnboarding('esnaf')} className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black cursor-pointer">
+                          Esnaf Olarak Kayıt Ol
+                        </button>
+                      )}
                     </div>
+                  )}
 
-                    <div className="pt-3 border-t border-slate-100 flex gap-2">
-                      <button
-                        onClick={() => openWhatsApp(shop.phone, `Merhaba ${shop.name}, Dijital Mutlular üzerinden yazıyorum.`)}
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs font-black py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                      </button>
-                      <button
-                        onClick={() => openDialer(shop.phone)}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl transition-all cursor-pointer"
-                        title="Dükkanı Ara"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {shown.map((b) => (
+                      <div key={b.id} className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden flex flex-col">
+                        <button type="button" onClick={() => openBusiness(b)} className="text-left cursor-pointer">
+                          {b.fotolar && b.fotolar[0] ? (
+                            <img src={b.fotolar[0]} alt="" className="w-full h-36 object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-full h-24 bg-emerald-50 flex items-center justify-center text-4xl">🏪</div>
+                          )}
+                          <div className="p-4 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              {b.logoUrl && <img src={b.logoUrl} alt="" className="w-9 h-9 rounded-xl object-cover border border-slate-200 shrink-0" referrerPolicy="no-referrer" />}
+                              <div className="min-w-0">
+                                <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">{b.kategori}</span>
+                                <h4 className="font-black text-sm text-slate-900 mt-1 truncate">{b.isyeri}</h4>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{b.aciklama}</p>
+                            <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-slate-400" />
+                              <span className="truncate">{b.adres}</span>
+                            </div>
+                          </div>
+                        </button>
+                        <div className="px-4 pb-4 mt-auto flex gap-2">
+                          <button onClick={() => openBusiness(b)} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black py-2 rounded-xl cursor-pointer">
+                            Sayfayı Aç
+                          </button>
+                          <button
+                            onClick={() => { trackBusinessEvent(b, 'whatsapp'); openWhatsApp(b.whatsapp || b.telefon, `Merhaba ${b.isyeri}, Mutlular Haber üzerinden yazıyorum.`); }}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl cursor-pointer"
+                            title="WhatsApp"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => { trackBusinessEvent(b, 'call'); openDialer(b.telefon); }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl cursor-pointer"
+                            title="Ara"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-            </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -8225,7 +8523,7 @@ export default function App() {
               {[
                 { title: 'MUTLULAR HİZMET', icon: Wrench, count: '18 Sektör', tab: 'services', color: 'bg-orange-50 text-orange-600' },
                 { title: 'Mahalle Meclisi', icon: Megaphone, count: '3 Anket', tab: 'meclis', color: 'bg-blue-50 text-blue-600' },
-                { title: 'Esnaf & Dükkanlar', icon: Store, count: '45 Kayıt', tab: 'esnaf', color: 'bg-emerald-50 text-emerald-600' },
+                { title: 'Esnaf & Dükkanlar', icon: Store, count: `${businesses.length} Kayıt`, tab: 'esnaf', color: 'bg-emerald-50 text-emerald-600' },
                 { title: 'MUTLULAR ALIM SATIM', icon: ShoppingBag, count: '12 İlan', tab: 'market', color: 'bg-amber-50 text-amber-600' },
                 { title: 'Kayıp & Buluntu', icon: Search, count: '2 Kayıp', tab: 'lostfound', color: 'bg-purple-50 text-purple-600' },
                 { title: 'MUTLULAR HABER', icon: Newspaper, count: '16 Haber', tab: 'news', color: 'bg-red-50 text-red-600' }
@@ -8558,7 +8856,7 @@ export default function App() {
                 <button
                   onClick={() => {
                     setShowQuickActionSheet(false);
-                    setShowCampaignModal(true);
+                    openCampaignModal();
                   }}
                   className="flex items-center gap-3 p-3 rounded-2xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100/70 hover:border-amber-400 text-left transition-all group cursor-pointer shadow-2xs"
                 >
@@ -12516,6 +12814,25 @@ export default function App() {
         onShare={(c) => openShareStudio(dataToShareItem(c.kind, c.data, c.id))}
       />
 
+      {/* ── İŞLETME SAYFASI (herkese açık) ve düzenleyici (esnaf) ── */}
+      <BusinessPage
+        business={businessView}
+        campaigns={campaigns}
+        onClose={closeBusiness}
+        onShare={(b) => {
+          trackBusinessEvent(b, 'share');
+          openShareStudio(dataToShareItem('isletme', b, b.id));
+        }}
+        onEvent={trackBusinessEvent}
+      />
+      <BusinessEditor
+        open={showBusinessEditor}
+        initial={getBusinessFormInitial()}
+        existing={myBusiness}
+        onClose={() => setShowBusinessEditor(false)}
+        onSave={handleSaveBusiness}
+      />
+
       {/* ── PAYLAŞIM STÜDYOSU: hikâye görseli, bağlantı, metin ── */}
       <ShareStudio item={shareItem} onClose={() => setShareItem(null)} onToast={showToast} onShared={recordShare} />
 
@@ -12732,6 +13049,12 @@ export default function App() {
         onSaveLive={handleSaveLive}
         shareSources={adminShareSources}
         onPrepareShare={openShareStudio}
+        pendingBusinesses={pendingBusinesses}
+        pendingCampaigns={pendingCampaigns}
+        onApproveBusiness={handleApproveBusiness}
+        onRejectBusiness={handleRejectBusiness}
+        onApproveCampaign={handleApproveCampaign}
+        onRejectCampaign={handleRejectCampaign}
         pendingDeceased={pendingDeceased}
         onApproveDeceased={handleApproveDeceased}
         onRejectDeceased={handleRejectDeceased}

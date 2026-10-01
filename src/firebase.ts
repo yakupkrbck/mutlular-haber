@@ -30,6 +30,7 @@ import {
   serverTimestamp, 
   runTransaction, 
   increment,
+  getCountFromServer,
   type Timestamp 
 } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
@@ -376,6 +377,9 @@ export interface NewsItem {
 
 export interface EsnafCampaign {
   id?: string;
+  status?: 'pending' | 'published' | 'rejected';
+  reviewNote?: string;
+  reviewedAt?: Timestamp | Date;
   isyeriAdi: string;
   kategori: string;
   baslik: string;
@@ -416,6 +420,7 @@ export {
   serverTimestamp,
   runTransaction,
   increment,
+  getCountFromServer,
   type User
 };
 
@@ -425,4 +430,25 @@ export interface HizmetAlani {
   adNorm?: string;
   ekleyenUid?: string;
   createdAt?: Timestamp | Date;
+}
+
+export interface Business {
+  id: string; // belge kimliği = sahibinin uid'si
+  ownerUid: string;
+  isyeri: string;
+  kategori: string;
+  aciklama: string;
+  logoUrl?: string;
+  fotolar?: string[];
+  adres: string;
+  calismaSaatleri: string;
+  telefon: string;
+  whatsapp?: string;
+  instagram?: string;
+  website?: string;
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  reviewNote?: string;
+  createdAt?: Timestamp | Date;
+  updatedAt?: Timestamp | Date;
+  reviewedAt?: Timestamp | Date;
 }

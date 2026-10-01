@@ -1,7 +1,7 @@
 // Role göre "Benim Alanım" kartı (FAZ 3): her rolün profilinde yalnızca gerçekten var olan verileri gösterir.
 import React from 'react';
 import PhotoUploadField from './PhotoUploadField';
-import type { UserProfile, ServiceRequest, ServiceOffer, EsnafCampaign } from './firebase';
+import type { UserProfile, ServiceRequest, ServiceOffer, EsnafCampaign, Business } from './firebase';
 
 export type RoleKind = 'admin' | 'editor' | 'usta' | 'esnaf' | 'sakin';
 
@@ -37,6 +37,12 @@ export function ProfileRoleCard({
   offersByRequest,
   myOffers,
   myCampaigns,
+  business,
+  bizStats,
+  onEditBusiness,
+  onViewBusiness,
+  onNewCampaign,
+  onRefreshStats,
   pendingCount,
   onOpenRequest,
   onOpenPanel,
@@ -51,6 +57,12 @@ export function ProfileRoleCard({
   offersByRequest: Record<string, ServiceOffer[]>;
   myOffers: ServiceOffer[];
   myCampaigns: EsnafCampaign[];
+  business: Business | null;
+  bizStats: { views: number; views7: number; call: number; whatsapp: number; share: number; map: number } | null;
+  onEditBusiness: () => void;
+  onViewBusiness: () => void;
+  onNewCampaign: () => void;
+  onRefreshStats: () => void;
   pendingCount: number;
   onOpenRequest: (r: ServiceRequest) => void;
   onOpenPanel: () => void;
@@ -195,28 +207,83 @@ export function ProfileRoleCard({
     );
   } else if (roleKind === 'esnaf') {
     title = '🏪 İşletmem';
+    const st = business?.approvalStatus;
+    const banner =
+      !business
+        ? { c: 'bg-slate-50 border-slate-200 text-slate-800', t: 'İşletme sayfanız yok', d: 'Esnaf rehberinde görünmek ve kampanya yayınlamak için işletme sayfanızı oluşturup onaya gönderin.' }
+        : st === 'approved'
+        ? { c: 'bg-emerald-50 border-emerald-200 text-emerald-900', t: '✅ Sayfanız yayında', d: 'Esnaf rehberinde görünüyorsunuz. Kampanya yayınlayabilirsiniz.' }
+        : st === 'rejected'
+        ? { c: 'bg-red-50 border-red-200 text-red-900', t: '❌ Sayfanız onaylanmadı', d: business.reviewNote ? `Not: ${business.reviewNote}` : 'Bilgileri düzeltip tekrar gönderebilirsiniz.' }
+        : { c: 'bg-amber-50 border-amber-200 text-amber-900', t: '⏳ Onay bekliyor', d: 'Yönetici inceliyor. Onaylanınca rehberde yayınlanır.' };
+    const CAMP: Record<string, { t: string; c: string }> = {
+      pending: { t: 'Onay bekliyor', c: 'bg-amber-100 text-amber-800' },
+      rejected: { t: 'Reddedildi', c: 'bg-red-100 text-red-700' },
+      published: { t: 'Yayında', c: 'bg-emerald-100 text-emerald-800' }
+    };
     body = (
       <>
-        <Section title="İşletme bilgilerim">
-          <div className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1">
-            <div><strong>İşletme:</strong> {profile.isyeri || '—'}</div>
-            <div><strong>Tür:</strong> {profile.esnafKategori || '—'}</div>
-            <div><strong>Adres:</strong> {profile.adres || '—'}</div>
-            <div><strong>Çalışma saatleri:</strong> {profile.calismaSaatleri || '—'}</div>
-          </div>
-          <button type="button" onClick={onOpenEdit} className={`${btn} bg-slate-100 hover:bg-slate-200 text-slate-800`}>
-            İşletme bilgilerimi düzenle
+        <div className={`rounded-2xl border p-3 text-xs ${banner.c}`}>
+          <div className="font-black">{banner.t}</div>
+          <div className="mt-0.5">{banner.d}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onEditBusiness} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white`}>
+            {!business ? 'İşletme sayfası oluştur' : st === 'rejected' ? 'Düzelt ve tekrar gönder' : 'İşletme sayfamı düzenle'}
           </button>
-        </Section>
+          {st === 'approved' && (
+            <button type="button" onClick={onViewBusiness} className={`${btn} bg-slate-100 hover:bg-slate-200 text-slate-800`}>
+              Sayfamı gör
+            </button>
+          )}
+          {st === 'approved' && (
+            <button type="button" onClick={onNewCampaign} className={`${btn} bg-amber-500 hover:bg-amber-600 text-slate-950`}>
+              Yeni kampanya
+            </button>
+          )}
+        </div>
+
+        {st === 'approved' && (
+          <Section title="Sayfa istatistikleri">
+            {bizStats ? (
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ['Görüntüleme', bizStats.views],
+                  ['Son 7 gün', bizStats.views7],
+                  ['Arama', bizStats.call],
+                  ['WhatsApp', bizStats.whatsapp],
+                  ['Paylaşım', bizStats.share],
+                  ['Harita', bizStats.map]
+                ].map(([l, v]) => (
+                  <div key={String(l)} className="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+                    <div className="text-lg font-black text-slate-900">{v as number}</div>
+                    <div className="text-[11px] text-slate-500 font-semibold">{l}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty>İstatistikler yükleniyor…</Empty>
+            )}
+            <div className="text-[11px] text-slate-500">Yalnızca giriş yapmış kullanıcıların ziyaretleri, kişi başına günde bir kez sayılır.</div>
+            <button type="button" onClick={onRefreshStats} className={`${btn} bg-slate-100 hover:bg-slate-200 text-slate-800`}>
+              Yenile
+            </button>
+          </Section>
+        )}
+
         <Section title={`Kampanyalarım (${myCampaigns.length})`}>
           {myCampaigns.length === 0 ? (
             <Empty>Henüz kampanya yayınlamadın.</Empty>
           ) : (
-            myCampaigns.slice(0, 5).map((c) => (
-              <div key={c.id} className="p-3 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-900 truncate">
-                {c.baslik}
-              </div>
-            ))
+            myCampaigns.slice(0, 6).map((c) => {
+              const cs = CAMP[c.status || 'published'] || CAMP.published;
+              return (
+                <div key={c.id} className="p-3 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-2">
+                  <span className="text-xs font-black text-slate-900 truncate">{c.baslik}</span>
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-md shrink-0 ${cs.c}`}>{cs.t}</span>
+                </div>
+              );
+            })
           )}
         </Section>
       </>

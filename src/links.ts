@@ -11,7 +11,7 @@
 // Paylaşılan bağlantının hangi biçimde üretileceğini LINK_STYLE belirler.
 
 export type ContentType = 'haber' | 'duyuru' | 'cenaze' | 'ilan' | 'esnaf' | 'hizmet';
-export type ContentKind = 'haber' | 'cenaze' | 'marketplace' | 'kayip' | 'davet' | 'kursu' | 'kampanya';
+export type ContentKind = 'haber' | 'cenaze' | 'marketplace' | 'kayip' | 'davet' | 'kursu' | 'kampanya' | 'isletme';
 
 export const CONTENT_TYPES: ContentType[] = ['haber', 'duyuru', 'cenaze', 'ilan', 'esnaf', 'hizmet'];
 
@@ -30,7 +30,10 @@ export const CONTENT_COLLECTIONS: Record<Exclude<ContentType, 'hizmet'>, { col: 
     { col: 'mahalle_davetleri', kind: 'davet' },
     { col: 'mahalle_kursusu', kind: 'kursu' }
   ],
-  esnaf: [{ col: 'esnaf_kampanyalar', kind: 'kampanya' }]
+  esnaf: [
+    { col: 'businesses', kind: 'isletme' },
+    { col: 'esnaf_kampanyalar', kind: 'kampanya' }
+  ]
 };
 
 export const KIND_TO_TYPE: Record<ContentKind, ContentType> = {
@@ -40,7 +43,8 @@ export const KIND_TO_TYPE: Record<ContentKind, ContentType> = {
   kayip: 'ilan',
   davet: 'duyuru',
   kursu: 'duyuru',
-  kampanya: 'esnaf'
+  kampanya: 'esnaf',
+  isletme: 'esnaf'
 };
 
 export interface ParsedLink {

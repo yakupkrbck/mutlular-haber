@@ -14,6 +14,7 @@ export type NotifCategory =
   | 'esnaf'
   | 'hizmet'
   | 'teklif'
+  | 'isletme'
   | 'yorum';
 
 export interface NotifCategoryMeta {
@@ -22,7 +23,7 @@ export interface NotifCategoryMeta {
   emoji: string;
   desc: string;
   badge: string; // rozet rengi (Tailwind)
-  audience: 'all' | 'usta' | 'soon';
+  audience: 'all' | 'usta' | 'esnaf' | 'soon';
 }
 
 export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
@@ -34,6 +35,7 @@ export const NOTIF_CATEGORIES: NotifCategoryMeta[] = [
   { key: 'esnaf', label: 'Esnaf ilanları ve kampanyaları', emoji: '🏪', desc: 'İndirim ve kampanyalar', badge: 'bg-emerald-600', audience: 'all' },
   { key: 'hizmet', label: 'Hizmet talepleri', emoji: '🛠️', desc: 'Kategorinize uygun yeni talepler', badge: 'bg-orange-700', audience: 'usta' },
   { key: 'teklif', label: 'Usta teklifleri', emoji: '💰', desc: 'Talebinize gelen ve kabul edilen teklifler', badge: 'bg-emerald-700', audience: 'all' },
+  { key: 'isletme', label: 'İşletme ve kampanya onayları', emoji: '🏪', desc: 'İşletme sayfanız ve kampanyalarınız hakkında karar bildirimleri', badge: 'bg-teal-700', audience: 'esnaf' },
   { key: 'yorum', label: 'Yorumlara verilen yanıtlar', emoji: '💬', desc: 'Yorum sistemi FAZ 6’da gelecek', badge: 'bg-indigo-600', audience: 'soon' }
 ];
 
@@ -49,6 +51,7 @@ export const DEFAULT_NOTIF_PREFS: NotifPrefs = {
   esnaf: false,
   hizmet: true,
   teklif: true,
+  isletme: true,
   yorum: true
 };
 
@@ -69,7 +72,7 @@ export function normalizePrefs(raw: any, legacy?: { enabled?: boolean; sonDakika
 export const NOTIF_WINDOW_MS = 14 * 24 * 3600 * 1000;
 
 export interface NotifTarget {
-  kind: 'haber' | 'cenaze' | 'davet' | 'kampanya' | 'kayip' | 'talep';
+  kind: 'haber' | 'cenaze' | 'davet' | 'kampanya' | 'kayip' | 'talep' | 'isletme';
   id: string;
 }
 

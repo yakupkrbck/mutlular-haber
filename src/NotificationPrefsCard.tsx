@@ -6,11 +6,13 @@ export function NotificationPrefsCard({
   prefs,
   onChange,
   isUsta,
+  isEsnaf,
   masterEnabled
 }: {
   prefs: NotifPrefs;
   onChange: (next: NotifPrefs) => void;
   isUsta: boolean;
+  isEsnaf: boolean;
   masterEnabled: boolean;
 }) {
   const toggle = (k: NotifCategory) => onChange({ ...prefs, [k]: !prefs[k] });
@@ -30,7 +32,7 @@ export function NotificationPrefsCard({
       </div>
 
       <div className="space-y-2">
-        {NOTIF_CATEGORIES.filter((c) => c.audience !== 'usta' || isUsta).map((c) => {
+        {NOTIF_CATEGORIES.filter((c) => (c.audience !== 'usta' || isUsta) && (c.audience !== 'esnaf' || isEsnaf)).map((c) => {
           const soon = c.audience === 'soon';
           const on = prefs[c.key] && !soon;
           return (
