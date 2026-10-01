@@ -766,11 +766,12 @@ export function MockupListingDetailModal({
         <div className="p-4 bg-white border-t border-slate-100 space-y-2 sticky bottom-0">
           <span className="text-xs font-bold text-slate-400">İletişim</span>
           <button
-            onClick={() => onCall(item.saticiTelefon || '05321112233')}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black text-sm py-3.5 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+            disabled={!item.saticiTelefon}
+            onClick={() => item.saticiTelefon && onCall(item.saticiTelefon)}
+            className="w-full disabled:opacity-50 disabled:cursor-not-allowed bg-orange-500 hover:bg-orange-600 text-white font-black text-sm py-3.5 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <Phone className="w-4 h-4 fill-white" />
-            <span>Telefon ile Ara</span>
+            <span>{item.saticiTelefon ? 'Telefon ile Ara' : 'Telefon bilgisi yok'}</span>
           </button>
         </div>
       </div>
@@ -916,11 +917,12 @@ export function MockupMasterDetailModal({
         {/* Sticky Green Call Button */}
         <div className="p-4 bg-white border-t border-slate-100 sticky bottom-0">
           <button
-            onClick={() => onCall(master.phone || '05342223355')}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm py-3.5 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+            disabled={!master.phone}
+            onClick={() => master.phone && onCall(master.phone)}
+            className="w-full disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm py-3.5 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <Phone className="w-4 h-4 fill-white" />
-            <span>Hemen Ara</span>
+            <span>{master.phone ? 'Hemen Ara' : 'Telefon bilgisi yok'}</span>
           </button>
         </div>
       </div>

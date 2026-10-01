@@ -4873,6 +4873,9 @@ export default function App() {
 
             {/* 7. 📌 MAHALLE PANOSU */}
             <MutlularPanoSection
+              deceased={deceasedList}
+              lostFound={lostFoundItems}
+              invitations={invitationItems}
               onOpenItem={(t) => {
                 if (t === 'davet') setActiveTab('davet');
                 window.scrollTo({ top: 0, behavior: 'smooth' });

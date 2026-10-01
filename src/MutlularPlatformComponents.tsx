@@ -1268,14 +1268,26 @@ export function MutlularUstalarSection({
 // Duyurular, Kayıp/Bulundu, Vefat duyuruları, Mahalle etkinlikleri, Önemli bilgilendirmeler
 // ══════════════════════════════════════════════════════════════════
 export function MutlularPanoSection({
+  deceased,
+  lostFound,
+  invitations,
   onOpenItem,
   onOpenDeceasedModal,
   onOpenLostFoundModal
 }: {
+  deceased: { id?: string; fullName: string; age?: number; mosque?: string; prayerTime?: string; dateStr?: string }[];
+  lostFound: { id?: string; baslik: string; aciklama?: string; tur?: string }[];
+  invitations: { id?: string; baslik: string; aciklama?: string; tarih?: string }[];
   onOpenItem?: (type: string) => void;
   onOpenDeceasedModal: () => void;
   onOpenLostFoundModal: () => void;
 }) {
+  // Yalnızca gerçek kayıtlar gösterilir; kayıt yoksa o kart hiç çıkmaz, üçü de boşsa bölüm gizlenir.
+  const d = deceased[0];
+  const l = lostFound[0];
+  const e = invitations[0];
+  if (!d && !l && !e) return null;
+
   return (
     <section className="space-y-4 pt-3">
       <div className="flex items-center justify-between pb-1 border-b border-slate-200/80">
@@ -1295,80 +1307,81 @@ export function MutlularPanoSection({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 1. Kutu: Vefat & Taziye İlanları */}
-        <div
-          onClick={onOpenDeceasedModal}
-          className="bg-slate-900 text-white rounded-3xl p-5 border border-slate-800 shadow-sm hover:shadow-lg transition-all cursor-pointer group flex flex-col justify-between space-y-4"
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-600/90 text-white text-[10px] font-black uppercase tracking-wider">
-                <span>🕊️</span> Vefat &amp; Taziye
-              </span>
-              <span className="text-[10px] text-slate-400">Merkez Camii</span>
+        {d && (
+          <div
+            onClick={onOpenDeceasedModal}
+            className="bg-slate-900 text-white rounded-3xl p-5 border border-slate-800 shadow-sm hover:shadow-lg transition-all cursor-pointer flex flex-col justify-between gap-4 group"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-600/90 text-white text-[10px] font-black uppercase tracking-wider">
+                  <span>🕊️</span> Vefat &amp; Taziye
+                </span>
+                {d.mosque && <span className="text-[10px] text-slate-400 truncate">{d.mosque}</span>}
+              </div>
+              <h4 className="font-serif text-base font-black group-hover:text-amber-300 transition-colors">
+                {d.fullName}{d.age ? ` (${d.age})` : ''}
+              </h4>
+              {(d.dateStr || d.prayerTime) && (
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {[d.dateStr, d.prayerTime].filter(Boolean).join(' • ')}
+                </p>
+              )}
             </div>
-            <h4 className="font-serif text-base font-black group-hover:text-amber-300 transition-colors">
-              Hacı Mehmet Dayı (82)
-            </h4>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Cenazesi bugün ikindi namazını müteakip Mutlular Merkez Camii'nden kaldırılacaktır.
-            </p>
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-amber-300 font-bold">
+              <span>Tüm Vefat &amp; Taziye İlanları{deceased.length > 1 ? ` (${deceased.length})` : ''}</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
           </div>
-          <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-amber-300 font-bold">
-            <span>Tüm Vefat &amp; Taziye İlanları</span>
-            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-          </div>
-        </div>
+        )}
 
-        {/* 2. Kutu: Kayıp & Buluntu */}
-        <div
-          onClick={onOpenLostFoundModal}
-          className="bg-amber-50/70 border border-amber-200/90 rounded-3xl p-5 shadow-2xs hover:shadow-lg transition-all cursor-pointer group flex flex-col justify-between space-y-4"
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wider">
-                <span>🔍</span> Kayıp &amp; Buluntu
-              </span>
-              <span className="text-[10px] text-amber-800 font-bold">2 İlan</span>
+        {l && (
+          <div
+            onClick={onOpenLostFoundModal}
+            className="bg-amber-50/70 border border-amber-200/90 rounded-3xl p-5 shadow-2xs hover:shadow-lg transition-all cursor-pointer flex flex-col justify-between gap-4 group"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                  <span>🔍</span> Kayıp &amp; Buluntu
+                </span>
+                <span className="text-[10px] text-amber-800 font-bold">{lostFound.length} İlan</span>
+              </div>
+              <h4 className="font-serif text-base font-black text-slate-900 group-hover:text-amber-800 transition-colors">
+                {l.baslik}
+              </h4>
+              {l.aciklama && <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">{l.aciklama}</p>}
             </div>
-            <h4 className="font-serif text-base font-black text-slate-900 group-hover:text-amber-800 transition-colors">
-              Park Civarında Sarı Tasmalı Tekir Kedi
-            </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Dün akşam saatlerinde yeni park civarında görüldü. Görenlerin muhtarlığa bildirmesi rica olunur.
-            </p>
+            <div className="pt-2 border-t border-amber-200/60 flex items-center justify-between text-xs text-amber-800 font-bold">
+              <span>Kayıp İlanlarına Göz At</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
           </div>
-          <div className="pt-2 border-t border-amber-200/60 flex items-center justify-between text-xs text-amber-800 font-bold">
-            <span>Kayıp İlanlarına Göz At</span>
-            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-          </div>
-        </div>
+        )}
 
-        {/* 3. Kutu: Mahalle Etkinlikleri & Duyurular */}
-        <div
-          onClick={() => onOpenItem && onOpenItem('davet')}
-          className="bg-purple-50/70 border border-purple-200/90 rounded-3xl p-5 shadow-2xs hover:shadow-lg transition-all cursor-pointer group flex flex-col justify-between space-y-4"
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-wider">
-                <span>🎪</span> Etkinlik &amp; Duyuru
-              </span>
-              <span className="text-[10px] text-purple-700 font-bold">Bu Cumartesi</span>
+        {e && (
+          <div
+            onClick={() => onOpenItem && onOpenItem('davet')}
+            className="bg-purple-50/70 border border-purple-200/90 rounded-3xl p-5 shadow-2xs hover:shadow-lg transition-all cursor-pointer flex flex-col justify-between gap-4 group"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-black uppercase tracking-wider">
+                  <span>🎪</span> Etkinlik &amp; Duyuru
+                </span>
+                {e.tarih && <span className="text-[10px] text-purple-700 font-bold truncate">{e.tarih}</span>}
+              </div>
+              <h4 className="font-serif text-base font-black text-slate-900 group-hover:text-purple-800 transition-colors">
+                {e.baslik}
+              </h4>
+              {e.aciklama && <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">{e.aciklama}</p>}
             </div>
-            <h4 className="font-serif text-base font-black text-slate-900 group-hover:text-purple-800 transition-colors">
-              Geleneksel Mahalle Kermesi &amp; Çay Bahçesi Buluşması
-            </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Kültür merkezi bahçesinde el emeği ürünler ve komşuluk buluşması için davetlisiniz!
-            </p>
+            <div className="pt-2 border-t border-purple-200/60 flex items-center justify-between text-xs text-purple-800 font-bold">
+              <span>Tüm Etkinlikleri Gör</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
           </div>
-          <div className="pt-2 border-t border-purple-200/60 flex items-center justify-between text-xs text-purple-800 font-bold">
-            <span>Tüm Etkinlikleri Gör</span>
-            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-          </div>
-        </div>
+        )}
       </div>
     </section>
   );
@@ -1802,8 +1815,6 @@ export function MutlularFooter({
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-slate-500 text-[11px]">
           <p>© 2026 Mutlular Haber. Tüm hakları saklıdır. Mehmet Akif Mah. / Osmangazi - Bursa</p>
           <p className="flex items-center gap-3">
-            <span>Muhtarlık İletişim: 0224 246 00 00</span>
-            <span>•</span>
             <span className="text-red-400 font-bold">Acil Çağrı: 112</span>
           </p>
         </div>
