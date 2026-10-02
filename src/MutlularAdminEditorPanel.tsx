@@ -51,6 +51,11 @@ interface MutlularAdminEditorPanelProps {
   onDeleteNews: (id?: string, title?: string) => Promise<void>;
   liveConfig?: LiveConfig;
   onSaveLive?: (cfg: LiveConfig) => Promise<boolean>;
+  polls?: { id: string; soru: string; kategori: string; secenekler: string[]; aktif: boolean; toplam: number; sayilar: number[]; endsAtMs: number }[];
+  onCreatePoll?: (data: { soru: string; kategori: any; secenekler: string[]; endsAt: Date | null }) => Promise<boolean>;
+  onTogglePoll?: (p: any) => Promise<void>;
+  onDeletePoll?: (p: any) => Promise<void>;
+  openTab?: string;
   pendingBusinesses?: any[];
   pendingCampaigns?: any[];
   onApproveBusiness?: (b: any) => Promise<void>;
@@ -82,6 +87,11 @@ export function MutlularAdminEditorPanel({
   onDeleteNews,
   liveConfig = EMPTY_LIVE,
   onSaveLive,
+  polls = [],
+  onCreatePoll,
+  onTogglePoll,
+  onDeletePoll,
+  openTab,
   pendingBusinesses = [],
   pendingCampaigns = [],
   onApproveBusiness,
@@ -98,7 +108,7 @@ export function MutlularAdminEditorPanel({
   activeDemoRole = 'admin',
   showToast
 }: MutlularAdminEditorPanelProps) {
-  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live' | 'deceased' | 'social' | 'esnaf'>('review_tips');
+  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live' | 'deceased' | 'social' | 'esnaf' | 'polls'>('review_tips');
 
   // Review sub-filter
   const [tipFilter, setTipFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -130,6 +140,18 @@ export function MutlularAdminEditorPanel({
   useEffect(() => {
     setLiveDraft({ ...EMPTY_LIVE, ...liveConfig });
   }, [liveConfig.aktif, liveConfig.baslik, liveConfig.aciklama, liveConfig.url]);
+
+  // Anket oluşturma state
+  const [pollQ, setPollQ] = useState('');
+  const [pollCat, setPollCat] = useState<'ulasim' | 'cevre' | 'sosyal' | 'genel'>('genel');
+  const [pollOpts, setPollOpts] = useState<string[]>(['Evet', 'Hayır']);
+  const [pollEnd, setPollEnd] = useState('');
+  const [pollSaving, setPollSaving] = useState(false);
+
+  // Dışarıdan istenen sekmeyi aç (örn. Meclis ekranındaki "Anket Oluştur")
+  useEffect(() => {
+    if (isOpen && openTab) setActiveTab(openTab as any);
+  }, [isOpen, openTab]);
 
   // Sosyal medya paneli state
   const [shareGroup, setShareGroup] = useState<string>('haber');
@@ -325,6 +347,19 @@ export function MutlularAdminEditorPanel({
               ) : (
                 <Lock className="w-3 h-3 text-slate-400" />
               )}
+            </button>
+
+            {/* Sekme: Anketler (yönetici + editör) */}
+            <button
+              onClick={() => setActiveTab('polls')}
+              className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'polls'
+                  ? 'bg-white text-blue-700 shadow-sm border border-slate-200/80 ring-2 ring-blue-500/20'
+                  : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+              }`}
+            >
+              <span>🗳️</span>
+              <span>Anketler</span>
             </button>
 
             {/* Sekme: Esnaf Onayı (işletmeler: yönetici, kampanyalar: yönetici + editör) */}
@@ -851,6 +886,96 @@ export function MutlularAdminEditorPanel({
           {/* ═════════════════════════════════════════════════════════════
               SEKME 3: KULLANICI & ROL YÖNETİMİ (YÖNETİCİ / ADMIN)
              ═════════════════════════════════════════════════════════════ */}
+          {activeTab === 'polls' && (
+            <div className="space-y-5">
+              <form
+                className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!onCreatePoll) return;
+                  setPollSaving(true);
+                  const ok = await onCreatePoll({
+                    soru: pollQ,
+                    kategori: pollCat,
+                    secenekler: pollOpts,
+                    endsAt: pollEnd ? new Date(pollEnd + 'T23:59:59') : null
+                  });
+                  setPollSaving(false);
+                  if (ok) {
+                    setPollQ('');
+                    setPollOpts(['Evet', 'Hayır']);
+                    setPollEnd('');
+                  }
+                }}
+              >
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-600">Yeni anket</h4>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Soru</label>
+                  <input value={pollQ} onChange={(e) => setPollQ(e.target.value)} maxLength={200} required placeholder="Örn: Mahalleye yeni bir çocuk parkı yapılsın mı?" className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl" />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Kategori</label>
+                    <select value={pollCat} onChange={(e) => setPollCat(e.target.value as any)} className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <option value="genel">📋 Genel</option>
+                      <option value="ulasim">🚲 Ulaşım & Yol</option>
+                      <option value="cevre">🌳 Park & Çevre</option>
+                      <option value="sosyal">🤝 Sosyal & Dayanışma</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Bitiş tarihi (opsiyonel)</label>
+                    <input type="date" value={pollEnd} onChange={(e) => setPollEnd(e.target.value)} className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-700 block">Seçenekler (2 ile 6 arası)</label>
+                  {pollOpts.map((o, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input value={o} onChange={(e) => setPollOpts(pollOpts.map((x, j) => (j === i ? e.target.value : x)))} maxLength={60} placeholder={`Seçenek ${i + 1}`} className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl" />
+                      {pollOpts.length > 2 && (
+                        <button type="button" onClick={() => setPollOpts(pollOpts.filter((_, j) => j !== i))} className="px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-black cursor-pointer" aria-label="Seçeneği kaldır">×</button>
+                      )}
+                    </div>
+                  ))}
+                  {pollOpts.length < 6 && (
+                    <button type="button" onClick={() => setPollOpts([...pollOpts, ''])} className="text-xs font-black text-blue-700 hover:text-blue-900 cursor-pointer">+ Seçenek ekle</button>
+                  )}
+                </div>
+                <button type="submit" disabled={pollSaving} className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-black py-2.5 rounded-xl cursor-pointer">
+                  {pollSaving ? 'Yayınlanıyor…' : '🗳️ Anketi Yayınla'}
+                </button>
+              </form>
+
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-600">Anketler ({polls.length})</h4>
+                {polls.length === 0 && <div className="bg-white rounded-2xl border border-slate-200 p-5 text-center text-xs text-slate-500">Henüz anket yok.</div>}
+                {polls.map((pl) => (
+                  <div key={pl.id} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-black text-sm text-slate-900">{pl.soru}</div>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-md shrink-0 ${pl.aktif && (!pl.endsAtMs || pl.endsAtMs > Date.now()) ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
+                        {pl.aktif && (!pl.endsAtMs || pl.endsAtMs > Date.now()) ? 'Açık' : 'Kapalı'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-600 space-y-0.5">
+                      {pl.secenekler.map((o, i) => (
+                        <div key={i}>• {o}: <strong>{pl.sayilar[i] || 0}</strong> oy</div>
+                      ))}
+                      <div className="text-slate-400 pt-0.5">Toplam {pl.toplam} oy</div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" onClick={() => onTogglePoll?.(pl)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black py-2 rounded-xl cursor-pointer">
+                        {pl.aktif ? 'Anketi Kapat' : 'Yeniden Aç'}
+                      </button>
+                      <button type="button" onClick={() => onDeletePoll?.(pl)} className="px-4 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-black py-2 rounded-xl cursor-pointer">Sil</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'esnaf' && (
             <div className="space-y-5">
               {isAdmin && (

@@ -30,31 +30,34 @@ import {
   ShoppingBag
 } from 'lucide-react';
 import {
-  PHARMACIES,
   NOTARIES,
   TAXI_STANDS,
   BUS_ROUTES,
   DECEASED_ITEMS,
-  TOURIST_SPOTS,
   FOOD_PLACES,
   JOB_LISTINGS,
   COMMUNITY_EVENTS,
   type DeceasedItem
 } from './cityServicesData';
 import type { UserProfile, UserRole } from './firebase';
+import { COORDINATOR_PHONE_INTL } from './siteConfig';
 
 interface CityServicesModalProps {
-  activeModal: 'eczane' | 'noter' | 'taksi' | 'otobus' | 'vefat' | 'gezilecek' | 'yemek' | 'is' | 'etkinlik' | 'odalar' | 'neleroluyor' | null;
+  activeModal: 'noter' | 'taksi' | 'otobus' | 'vefat' | 'yemek' | 'is' | 'etkinlik' | 'odalar' | 'neleroluyor' | null;
   onClose: () => void;
   onShowToast: (msg: string) => void;
   deceasedList?: DeceasedItem[];
   onOpenAddDeceased?: () => void;
+  canDeleteDeceased?: (d: DeceasedItem) => boolean;
+  onDeleteDeceased?: (d: DeceasedItem) => void;
+  myDeceasedPending?: DeceasedItem[];
 }
 
-export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedList, onOpenAddDeceased }: CityServicesModalProps) {
+export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedList, onOpenAddDeceased, canDeleteDeceased, onDeleteDeceased, myDeceasedPending }: CityServicesModalProps) {
   if (!activeModal) return null;
 
-  const currentDeceasedList = (deceasedList && deceasedList.length > 0) ? deceasedList : DECEASED_ITEMS;
+  // Örnek (sahte) kayıtlara geri düşülmez: liste boşsa boş durum gösterilir.
+  const currentDeceasedList = deceasedList || [];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
@@ -63,11 +66,6 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
         {/* MODAL BAŞLIĞI */}
         <div className="p-4 sm:p-5 border-b border-slate-150 flex items-center justify-between bg-slate-50/80 shrink-0">
           <div className="flex items-center gap-2.5">
-            {activeModal === 'eczane' && (
-              <div className="w-9 h-9 rounded-2xl bg-red-600 text-white font-black flex items-center justify-center text-lg">
-                E
-              </div>
-            )}
             {activeModal === 'noter' && (
               <div className="w-9 h-9 rounded-2xl bg-red-600 text-white font-black text-xs flex items-center justify-center">
                 NOTER
@@ -86,11 +84,6 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
             {activeModal === 'vefat' && (
               <div className="w-9 h-9 rounded-2xl bg-emerald-800 text-white flex items-center justify-center text-base">
                 🕊️
-              </div>
-            )}
-            {activeModal === 'gezilecek' && (
-              <div className="w-9 h-9 rounded-2xl bg-emerald-600 text-white flex items-center justify-center">
-                <Navigation className="w-5 h-5 stroke-[2.5]" />
               </div>
             )}
             {activeModal === 'yemek' && (
@@ -121,12 +114,10 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
 
             <div>
               <h3 className="font-black text-slate-900 text-base leading-tight">
-                {activeModal === 'eczane' && 'Nöbetçi Eczaneler'}
                 {activeModal === 'noter' && 'Nöbetçi Noterler'}
                 {activeModal === 'taksi' && 'Taksi Durakları (7/24)'}
                 {activeModal === 'otobus' && 'Mahalle Otobüs Saatleri'}
                 {activeModal === 'vefat' && 'Kaybettiklerimiz (Vefat & Taziye)'}
-                {activeModal === 'gezilecek' && 'Gezilecek Yerler & Mahalle Rehberi'}
                 {activeModal === 'yemek' && 'Yemek & Restoranlar'}
                 {activeModal === 'is' && 'İş İlanları & Mahalle Fırsatları'}
                 {activeModal === 'etkinlik' && 'Mahalle Etkinlikleri & Buluşmalar'}
@@ -150,56 +141,6 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
         {/* MODAL İÇERİĞİ */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
           
-          {/* 1. NÖBETÇİ ECZANELER */}
-          {activeModal === 'eczane' && (
-            <div className="space-y-3.5">
-              <div className="p-3 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-900 font-semibold flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse shrink-0" />
-                <span>Bugün nöbetçi olan eczaneler listelenmektedir. Acil durumlarda lütfen telefon ile teyit ediniz.</span>
-              </div>
-
-              {PHARMACIES.map((p) => (
-                <div key={p.id} className="p-4 bg-white rounded-2xl border border-slate-200 hover:border-red-300 hover:shadow-xs transition-all space-y-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
-                        <span>{p.name}</span>
-                        <span className="text-[10px] font-black bg-red-100 text-red-800 px-2 py-0.5 rounded-full">
-                          {p.distance}
-                        </span>
-                      </h4>
-                      <p className="text-xs text-slate-500 font-medium mt-0.5">{p.district}</p>
-                    </div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      {p.hours}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-slate-700 font-medium flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" /> {p.address}
-                  </p>
-
-                  <div className="pt-2 flex items-center gap-2">
-                    <a
-                      href={`tel:${p.phone.replace(/\s+/g, '')}`}
-                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs"
-                    >
-                      <Phone className="w-3.5 h-3.5" /> {p.phone}
-                    </a>
-                    <a
-                      href={`https://maps.google.com/?q=${encodeURIComponent(p.name + ' ' + p.address)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1 transition-all"
-                    >
-                      <Navigation className="w-3.5 h-3.5" /> Yol Tarifi
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* 2. NÖBETÇİ NOTERLER */}
           {activeModal === 'noter' && (
             <div className="space-y-3.5">
@@ -313,6 +254,28 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
                 )}
               </div>
 
+              {myDeceasedPending && myDeceasedPending.length > 0 && (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl space-y-2">
+                  <div className="text-xs font-black text-amber-900">Bıraktığınız ilanlar</div>
+                  {myDeceasedPending.map((d) => (
+                    <div key={d.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-bold text-slate-800 truncate">{d.fullName}</span>
+                      <span className={`shrink-0 font-black px-2 py-0.5 rounded-md ${d.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-200 text-amber-900'}`}>
+                        {d.status === 'rejected' ? 'Reddedildi' : '⏳ Onay bekliyor'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {currentDeceasedList.length === 0 && (
+                <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center text-xs text-slate-500 space-y-1">
+                  <div className="text-2xl">🕊️</div>
+                  <div className="font-bold text-slate-700">Şu an yayında vefat ilanı yok.</div>
+                  <div>Bir vefat olduğunda yukarıdaki "İlan Bırak" düğmesiyle cenaze ve taziye bilgisini duyurabilirsiniz.</div>
+                </div>
+              )}
+
               {currentDeceasedList.map((d) => (
                 <div key={d.id} className="p-4 bg-white rounded-2xl border border-slate-200 hover:shadow-xs transition-all space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -346,46 +309,16 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
                   >
                     <Share2 className="w-3.5 h-3.5" /> Taziye Bilgisini Paylaş
                   </button>
-                </div>
-              ))}
-            </div>
-          )}
 
-          {/* 6. GEZİLECEK YERLER */}
-          {activeModal === 'gezilecek' && (
-            <div className="space-y-4">
-              {TOURIST_SPOTS.map((s) => (
-                <div key={s.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xs transition-all">
-                  <div className="h-40 relative">
-                    <img src={s.imageUrl} alt={s.name} className="w-full h-full object-cover" />
-                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md text-white font-bold text-[10px] px-2.5 py-1 rounded-full">
-                      {s.category}
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-2.5">
-                    <h4 className="font-black text-slate-900 text-sm leading-tight">{s.name}</h4>
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" /> {s.location}
-                    </p>
-                    <p className="text-xs text-slate-700 leading-relaxed">{s.description}</p>
-                    
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {s.highlights.map((h, i) => (
-                        <span key={i} className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md">
-                          ✓ {h}
-                        </span>
-                      ))}
-                    </div>
-
-                    <a
-                      href={`https://maps.google.com/?q=${encodeURIComponent(s.name + ' Bursa')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs mt-2"
+                  {onDeleteDeceased && canDeleteDeceased && canDeleteDeceased(d) && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteDeceased(d)}
+                      className="w-full text-xs font-bold text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 py-1.5 rounded-xl transition-all cursor-pointer"
                     >
-                      <Navigation className="w-3.5 h-3.5" /> Konuma Git
-                    </a>
-                  </div>
+                      🗑️ İlanı Kaldır
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -501,12 +434,6 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
                 <p className="text-xs text-slate-600 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-slate-400" /> Hafta İçi: 08:30 - 17:30
                 </p>
-                <a
-                  href="tel:02242331010"
-                  className="w-full bg-teal-600 hover:bg-teal-700 text-white font-black text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs"
-                >
-                  <Phone className="w-3.5 h-3.5" /> Muhtarlığı Ara (0224 233 10 10)
-                </a>
               </div>
             </div>
           )}
@@ -781,7 +708,7 @@ export function HamburgerMenuDrawer({
                 >
                   <span className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                    <span>🚨 Acil Numaralar &amp; Nöbetçi Eczaneler</span>
+                    <span>🚨 Acil Numaralar</span>
                   </span>
                   <ChevronRight className="w-4 h-4 text-white/80" />
                 </button>
@@ -794,17 +721,6 @@ export function HamburgerMenuDrawer({
                 Şehir & Mahalle Birimleri
               </span>
               
-              <button
-                onClick={() => { onClose(); onOpenCityModal('eczane'); }}
-                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 text-xs font-bold transition-colors"
-              >
-                <span className="flex items-center gap-2.5">
-                  <span className="w-5 h-5 rounded-full bg-red-600 text-white font-black text-[10px] flex items-center justify-center">E</span>
-                  Nöbetçi Eczaneler
-                </span>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-
               <button
                 onClick={() => { onClose(); onOpenCityModal('noter'); }}
                 className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 text-xs font-bold transition-colors"
@@ -842,16 +758,6 @@ export function HamburgerMenuDrawer({
               >
                 <span className="flex items-center gap-2.5">
                   <span className="text-emerald-700">🕊️</span> Kaybettiklerimiz (Vefat & Taziye)
-                </span>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              <button
-                onClick={() => { onClose(); onOpenCityModal('gezilecek'); }}
-                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-100 text-slate-800 text-xs font-bold transition-colors"
-              >
-                <span className="flex items-center gap-2.5">
-                  <Navigation className="w-4 h-4 text-emerald-600" /> Gezilecek Yerler Rehberi
                 </span>
                 <ChevronRight className="w-4 h-4 text-slate-400" />
               </button>
@@ -947,7 +853,7 @@ export function HamburgerMenuDrawer({
             {/* WhatsApp Destek Hattı */}
             <div className="pt-2">
               <a
-                href="https://wa.me/905321112233"
+                href={`https://wa.me/${COORDINATOR_PHONE_INTL}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full p-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs flex items-center justify-center gap-2 transition-all shadow-xs"

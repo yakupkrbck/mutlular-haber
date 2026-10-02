@@ -98,38 +98,6 @@ export interface EventItem {
 }
 
 // 🏥 Nöbetçi Eczaneler (Mutlular & Osmangazi Çevresi)
-export const PHARMACIES: PharmacyItem[] = [
-  {
-    id: 'p1',
-    name: 'Mutlular Çınar Nöbetçi Eczanesi',
-    district: 'Mutlular Mah. / Osmangazi',
-    address: 'Mutlular Cad. No: 28/A (Fatih Camii Karşısı)',
-    phone: '0224 233 45 60',
-    hours: '24 Saat Açık (08:30 - Yarın 08:30)',
-    distance: '150 m',
-    directionsUrl: 'https://maps.google.com'
-  },
-  {
-    id: 'p2',
-    name: 'Şifa Eczanesi',
-    district: 'Kanalboyu / Soğanlı Girişi',
-    address: 'Kanalboyu Cad. No: 42 (Sağlık Ocağı Yanı)',
-    phone: '0224 234 88 12',
-    hours: '24 Saat Açık (Bugün Nöbetçi)',
-    distance: '650 m',
-    directionsUrl: 'https://maps.google.com'
-  },
-  {
-    id: 'p3',
-    name: 'Zafer Hayat Eczanesi',
-    district: 'Zafer / Osmangazi',
-    address: 'Fevzi Çakmak Bulvarı No: 15 (Devlet Hastanesi Yakını)',
-    phone: '0224 220 90 90',
-    hours: 'Gece 02:00\'ye Kadar Açık',
-    distance: '1.2 km',
-    directionsUrl: 'https://maps.google.com'
-  }
-];
 
 // 📜 Nöbetçi Noterler (Osmangazi / Bursa)
 export const NOTARIES: NotaryItem[] = [
@@ -245,35 +213,6 @@ export const DECEASED_ITEMS: DeceasedItem[] = [
 ];
 
 // 🏞️ Mahalle ve Şehir Rehberi (Gezilecek Yerler & Parklar)
-export const TOURIST_SPOTS: TouristSpotItem[] = [
-  {
-    id: 's1',
-    name: 'Mutlular Spor & Doğa Parkı',
-    category: 'Mahalle Parkı & Spor',
-    description: 'Yenilenen koşu parkuru, basketbol sahası, çocuk oyun alanları ve gölgelik çınar altı oturma kamelyaları ile mahallemizin nefes noktası.',
-    location: 'Mutlular Mahallesi Merkez Parkı',
-    imageUrl: 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=800&q=80',
-    highlights: ['Koşu & Yürüyüş Parkuru', 'Açık Hava Fitness Aletleri', 'Çocuk Oyun Parkı', 'Mahalle Çay Bahçesi']
-  },
-  {
-    id: 's2',
-    name: 'Bursa Botanik Parkı & Soğanlı Hayvanat Bahçesi',
-    category: 'Doğa & Aile',
-    description: 'Mutlular Mahallesi\'ne yürüme mesafesinde, yüzlerce bitki türü, yapay göletler, bisiklet kiralama yolları ve dinlenme mekanları.',
-    location: 'Soğanlı / Mutlular Bitişiği',
-    imageUrl: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80',
-    highlights: ['Bisiklet Yolları', 'Gölet & Kafe', 'Japon & Fransız Bahçeleri', 'Aile Piknik Alanları']
-  },
-  {
-    id: 's3',
-    name: 'Merinos Atatürk Kongre ve Kültür Parkı',
-    category: 'Kültür & Sanat',
-    description: 'Geniş yeşil alanları, tekstil müzesi, sanat galerileri ve açık hava etkinlik alanlarıyla Bursa\'nın buluşma noktası.',
-    location: 'Merinos / Osmangazi',
-    imageUrl: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=800&q=80',
-    highlights: ['Tekstil Müzesi', 'Geniş Yürüyüş Yolları', 'Kültür Merkezi', 'Göl Kafe']
-  }
-];
 
 // 🍽️ Yemek & Mahalle Restoranları
 export const FOOD_PLACES: FoodPlaceItem[] = [

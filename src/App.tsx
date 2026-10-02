@@ -56,10 +56,15 @@ import {
   parseContentLink,
   cleanedUrl,
   getBase,
-  slugify
+  slugify,
+  TAB_PATHS,
+  tabFromPathname,
+  sectionPath,
+  isCanonicalSection
 } from './links';
 import { ShareStudio, type ShareItem } from './ShareStudio';
 import { NotificationPrefsCard } from './NotificationPrefsCard';
+import { COORDINATOR_PHONE_INTL } from './siteConfig';
 import { ProfileRoleCard } from './ProfileRoleCard';
 import { BusinessEditor, type BusinessFormData } from './BusinessEditor';
 import { BusinessPage, type BusinessEvent } from './BusinessPage';
@@ -73,12 +78,10 @@ import { SharedContentView, type SharedContent } from './SharedContentView';
 import { toEmbedUrl, cleanLiveUrl, EMPTY_LIVE, type LiveConfig } from './liveStream';
 import { resolveKategoriId, requestMatchesEsnaf, toMillis, timeAgoTr, ESNAF_TURLERI, DIGER_ALAN, cleanAreaName, customAreaToMainCat, isUstaProfile } from './serviceMatching';
 import {
-  PHARMACIES,
   NOTARIES,
   TAXI_STANDS,
   BUS_ROUTES,
   DECEASED_ITEMS,
-  TOURIST_SPOTS,
   FOOD_PLACES,
   JOB_LISTINGS,
   COMMUNITY_EVENTS,
@@ -182,7 +185,7 @@ import PhotoUploadField from './PhotoUploadField';
 import { deleteField } from 'firebase/firestore';
 import { sendEmailVerification } from 'firebase/auth';
 
-const ADMIN_PHONE = '905321112233'; // Dijital Mutlular / Mutlular Haber Portalı Koordinatör WhatsApp Hattı
+const ADMIN_PHONE = COORDINATOR_PHONE_INTL; // Koordinatör WhatsApp hattı (siteConfig.ts)
 
 const PHOTO_PRESETS = [
   { label: 'Düğün & Organizasyon', url: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80' },
@@ -981,9 +984,11 @@ export default function App() {
   const [mockupServiceCategory, setMockupServiceCategory] = useState<string>('all');
 
   // Active navigation tab
-  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'news' | 'davet' | 'market' | 'pazar' | 'lostfound' | 'services' | 'esnaf' | 'meclis' | 'notifications' | 'profile' | 'yemek'>('home');
+  type MainTab = 'home' | 'explore' | 'news' | 'davet' | 'market' | 'pazar' | 'lostfound' | 'services' | 'esnaf' | 'meclis' | 'notifications' | 'profile' | 'yemek';
+  // İlk açılışta ekran adres çubuğundan belirlenir (mutlularhaber.com/hizmet doğrudan Hizmet ekranını açar)
+  const [activeTab, setActiveTab] = useState<MainTab>(() => (tabFromPathname(window.location.pathname, getBase()) as MainTab | null) ?? 'home');
   const [showMenuDrawer, setShowMenuDrawer] = useState(false);
-  const [activeCityModal, setActiveCityModal] = useState<null | 'eczane' | 'noter' | 'taksi' | 'otobus' | 'vefat' | 'gezilecek' | 'yemek' | 'is' | 'etkinlik' | 'odalar' | 'neleroluyor'>(null);
+  const [activeCityModal, setActiveCityModal] = useState<null | 'noter' | 'taksi' | 'otobus' | 'vefat' | 'yemek' | 'is' | 'etkinlik' | 'odalar' | 'neleroluyor'>(null);
 
   // ── TASARIM & ETKİLEŞİM STATE'LERİ (MOCKUP REFERANSI) ──
   const [savedNewsIds, setSavedNewsIds] = useState<string[]>(['haber_park', 'h1']);
@@ -1018,93 +1023,28 @@ export default function App() {
   const [marketCategoryFilter, setMarketCategoryFilter] = useState<string>('all');
   const [marketUnifiedSort, setMarketUnifiedSort] = useState<'newest' | 'price_asc' | 'price_desc'>('newest');
 
+  // ── MAHALLE MECLİSİ: ANKETLER (Firestore) ──
+  // polls/{id}: soru, secenekler[], kategori, aktif, toplam, c0..c5 (oy sayaçları), endsAt?
+  // polls/{id}/votes/{uid}: kullanıcı başına tek oy (kurallar sayaçla birlikte zorlar)
   interface PollItem {
     id: string;
-    title: string;
-    category: 'ulasim' | 'cevre' | 'sosyal';
-    icon: string;
-    evetCount: number;
-    hayirCount: number;
-    userVote: 'evet' | 'hayir' | null;
+    soru: string;
+    kategori: 'ulasim' | 'cevre' | 'sosyal' | 'genel';
+    secenekler: string[];
+    aktif: boolean;
+    toplam: number;
+    sayilar: number[];
+    endsAtMs: number;
+    createdAtMs: number;
+    authorName?: string;
   }
 
-  // Mahalle Meclisi (Canlı Anketler & Gündem)
-  const [meclisFilter, setMeclisFilter] = useState<'tumu' | 'guncel' | 'cevre' | 'ulasim' | 'sosyal'>('tumu');
-  const [polls, setPolls] = useState<PollItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('dijitalmutlular_polls_v2');
-      if (saved) return JSON.parse(saved);
-    } catch (_) {}
-    return [
-      {
-        id: 'poll_lamp',
-        title: 'Sokak lambaları yeterli mi? (Gece aydınlatması güçlendirilmeli mi?)',
-        category: 'ulasim',
-        icon: '🏮',
-        evetCount: 228,
-        hayirCount: 84,
-        userVote: 'evet' as 'evet' | 'hayir' | null
-      },
-      {
-        id: 'poll_green',
-        title: 'Mahallemizde daha fazla yeşil alan ve çocuk parkı oluşturulmalı mı?',
-        category: 'cevre',
-        icon: '🌳',
-        evetCount: 312,
-        hayirCount: 16,
-        userVote: null as 'evet' | 'hayir' | null
-      },
-      {
-        id: 'poll_market',
-        title: 'Mutlular kapalı pazar yerinde organik üretici ve kadın emeği pazarı açılsın mı?',
-        category: 'sosyal',
-        icon: '🧺',
-        evetCount: 294,
-        hayirCount: 22,
-        userVote: null as 'evet' | 'hayir' | null
-      }
-    ];
-  });
+  const [meclisFilter, setMeclisFilter] = useState<'tumu' | 'guncel' | 'cevre' | 'ulasim' | 'sosyal' | 'genel'>('tumu');
+  const [polls, setPolls] = useState<PollItem[]>([]);
+  const [myVotes, setMyVotes] = useState<Record<string, number>>({});
+  const [adminOpenTab, setAdminOpenTab] = useState<string | undefined>(undefined);
 
-  const handleVotePoll = (pollId: string, choice: 'evet' | 'hayir') => {
-    setPolls((prev: PollItem[]) => {
-      const updated = prev.map((p: PollItem) => {
-        if (p.id !== pollId) return p;
-        if (p.userVote === choice) {
-          return {
-            ...p,
-            evetCount: choice === 'evet' ? Math.max(0, p.evetCount - 1) : p.evetCount,
-            hayirCount: choice === 'hayir' ? Math.max(0, p.hayirCount - 1) : p.hayirCount,
-            userVote: null
-          };
-        }
-        let evet = p.evetCount;
-        let hayir = p.hayirCount;
-        if (p.userVote === 'evet') evet = Math.max(0, evet - 1);
-        if (p.userVote === 'hayir') hayir = Math.max(0, hayir - 1);
-        if (choice === 'evet') evet++;
-        if (choice === 'hayir') hayir++;
-        return {
-          ...p,
-          evetCount: evet,
-          hayirCount: hayir,
-          userVote: choice
-        };
-      });
-      try {
-        localStorage.setItem('dijitalmutlular_polls_v2', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-    showToast(`Oyunuz "${choice === 'evet' ? 'Evet' : 'Hayır'}" olarak kaydedildi! 🗳️`);
-  };
-
-  // Haber Yıldız Puanı & Yorumlar
-  const [newsRatingMap, setNewsRatingMap] = useState<Record<string, { rating?: number; score: number; count: number; userRating?: number }>>({
-    'haber_park': { score: 4.8, rating: 4.8, count: 124, userRating: 5 },
-    'default': { score: 4.8, rating: 4.8, count: 86 }
-  });
-
+  // Haber yorumları (gerçek yorum sistemi FAZ 6'da; başlangıçta örnek yorum yoktur)
   const [commentsMap, setCommentsMap] = useState<Record<string, Array<{
     id: string;
     author?: string;
@@ -1119,39 +1059,7 @@ export default function App() {
     text: string;
     likes: number;
     userLiked?: boolean;
-  }>>>({
-    'haber_park': [
-      {
-        id: 'c1',
-        author: 'Ayşe Yılmaz',
-        authorName: 'Ayşe Yılmaz',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80',
-        authorAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80',
-        time: '2 dk önce',
-        timeAgo: '2 dk önce',
-        rating: 5,
-        stars: 5,
-        badge: 'MAHALLE YORUMU',
-        text: 'Harika bir gelişme! Çocuklar çok mutlu oldu. Emeği geçen herkese teşekkürler.',
-        likes: 12,
-        userLiked: false
-      },
-      {
-        id: 'c2',
-        author: 'Mehmet Demir',
-        authorName: 'Mehmet Demir',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80',
-        authorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80',
-        time: '15 dk önce',
-        timeAgo: '15 dk önce',
-        rating: 5,
-        stars: 5,
-        text: 'Çok güzel düşünülmüş, özellikle yürüyüş yolları çok kullanışlı.',
-        likes: 5,
-        userLiked: false
-      }
-    ]
-  });
+  }>>>({});
   const [commentInput, setCommentInput] = useState('');
   const [newCommentInput, setNewCommentInput] = useState('');
 
@@ -1542,6 +1450,33 @@ export default function App() {
   }, [newsItems]);
 
   // ── İÇERİK BAĞLANTILARI (FAZ 2A): /{tür}/{slug}--{id} veya ?i={tür}/{slug}--{id} ──
+  // ── EKRAN ADRESLERİ: mutlularhaber.com/haber, /alimsatim, /hizmet, /pano ... ──
+  // Ekran değişince adres çubuğu güncellenir; geri/ileri düğmesi ve doğrudan adres de ekranı açar.
+  const firstRouteRef = useRef(true);
+  useEffect(() => {
+    const base = getBase();
+    const isFirst = firstRouteRef.current;
+    firstRouteRef.current = false;
+    // Açık bir içerik bağlantısı (haber/ilan/... veya eski ?haber=) varsa adresine dokunma
+    const params = new URLSearchParams(window.location.search);
+    const contentOpen = parseContentLink(window.location, base) !== null || params.has('haber') || params.has('news') || params.has('id');
+    if (contentOpen) return;
+    if (isCanonicalSection(window.location.pathname, activeTab, base)) return;
+    const target = sectionPath(activeTab, base);
+    // İlk yüklemede (tanınmayan veya Türkçe yazımlı adres) geçmişe yeni kayıt eklemeden kanonik adrese çevir
+    if (isFirst) window.history.replaceState({}, '', target + window.location.hash);
+    else window.history.pushState({}, '', target + window.location.hash);
+  }, [activeTab]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const t = tabFromPathname(window.location.pathname, getBase()) as MainTab | null;
+      if (t) setActiveTab(t);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   useEffect(() => {
     const read = () => setDeepLink(parseContentLink(window.location, getBase()));
     read();
@@ -1635,7 +1570,7 @@ export default function App() {
     url.searchParams.delete('id');
     resolvedLinkRef.current = '';
     setDeepLink(null);
-    window.history.pushState({}, '', cleanedUrl(window.location, getBase()));
+    window.history.pushState({}, '', cleanedUrl(window.location, getBase(), TAB_PATHS[activeTab] || ''));
   };
 
   // Haber bağlantısı: yeni içerik adresi şeması (eski ?haber= adresleri çalışmaya devam eder)
@@ -1735,7 +1670,7 @@ export default function App() {
     resolvedLinkRef.current = '';
     setSharedContent(null);
     setDeepLink(null);
-    window.history.replaceState({}, '', cleanedUrl(window.location, getBase()));
+    window.history.replaceState({}, '', cleanedUrl(window.location, getBase(), TAB_PATHS[activeTab] || ''));
   };
 
   const handleCopySharedLink = async (c: SharedContent) => {
@@ -2024,6 +1959,29 @@ export default function App() {
       setLiveConfig(snap.exists() ? ({ ...EMPTY_LIVE, ...(snap.data() as any) } as LiveConfig) : EMPTY_LIVE);
     }, (err) => console.warn('canli_yayin firestore:', err.message));
 
+    // Anketler
+    const unsubPolls = onSnapshot(collection(db, 'polls'), (snap) => {
+      const items: PollItem[] = [];
+      snap.forEach((d) => {
+        const x: any = d.data();
+        const opts: string[] = Array.isArray(x.secenekler) ? x.secenekler : [];
+        items.push({
+          id: d.id,
+          soru: x.soru || '',
+          kategori: x.kategori || 'genel',
+          secenekler: opts,
+          aktif: x.aktif !== false,
+          toplam: x.toplam || 0,
+          sayilar: opts.map((_: string, i: number) => x['c' + i] || 0),
+          endsAtMs: toMillis(x.endsAt),
+          createdAtMs: toMillis(x.createdAt) || Date.now(),
+          authorName: x.authorName
+        });
+      });
+      items.sort((a, b) => b.createdAtMs - a.createdAtMs);
+      setPolls(items);
+    }, (err) => console.warn('polls firestore:', err.message));
+
     // Faaliyet alanları (ustaların eklediği)
     const unsubAreas = onSnapshot(collection(db, 'hizmet_alanlari'), (snap) => {
       const items: HizmetAlani[] = [];
@@ -2134,6 +2092,7 @@ export default function App() {
       unsubLf();
       unsubReq();
       unsubAreas();
+      unsubPolls();
       unsubLive();
       unsubCamp();
       unsubBiz();
@@ -2624,7 +2583,7 @@ export default function App() {
 
   const closeBusiness = () => {
     setBusinessView(null);
-    window.history.replaceState({}, '', cleanedUrl(window.location, getBase()));
+    window.history.replaceState({}, '', cleanedUrl(window.location, getBase(), TAB_PATHS[activeTab] || ''));
     resolvedLinkRef.current = '';
     setDeepLink(null);
   };
@@ -2687,6 +2646,115 @@ export default function App() {
     setCampAdres(myBusiness.adres);
     setCampTelefon(myBusiness.telefon);
     setShowCampaignModal(true);
+  };
+
+  // Kullanıcının daha önce verdiği oyları getir (anket başına bir okuma)
+  useEffect(() => {
+    if (!user) {
+      setMyVotes({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const found: Record<string, number> = {};
+      for (const p of polls) {
+        try {
+          const v = await getDoc(doc(db, 'polls', p.id, 'votes', user.uid));
+          if (v.exists()) found[p.id] = (v.data() as any).option;
+        } catch (_) {
+          /* okunamayan anket atlanır */
+        }
+      }
+      if (!cancelled) setMyVotes(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, polls.map((p) => p.id).join(',')]);
+
+  const isPollOpen = (p: PollItem) => p.aktif && (!p.endsAtMs || p.endsAtMs > Date.now());
+
+  const handleVotePoll = async (p: PollItem, optionIndex: number) => {
+    if (!user) {
+      showToast('Oy kullanmak için önce giriş yapmalısınız.', true);
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (!isPollOpen(p)) return showToast('Bu anket kapanmış.', true);
+    if (myVotes[p.id] !== undefined) return showToast('Bu ankette zaten oy kullandınız.', true);
+    try {
+      await runTransaction(db, async (tx) => {
+        const pRef = doc(db, 'polls', p.id);
+        const vRef = doc(db, 'polls', p.id, 'votes', user.uid);
+        const [pSnap, vSnap] = await Promise.all([tx.get(pRef), tx.get(vRef)]);
+        if (!pSnap.exists()) throw new Error('Anket bulunamadı (silinmiş olabilir).');
+        const pd: any = pSnap.data();
+        if (pd.aktif === false) throw new Error('Bu anket kapanmış.');
+        if (vSnap.exists()) throw new Error('Bu ankette zaten oy kullandınız.');
+        tx.set(vRef, { uid: user.uid, option: optionIndex, createdAt: serverTimestamp() });
+        tx.update(pRef, { toplam: (pd.toplam || 0) + 1, ['c' + optionIndex]: (pd['c' + optionIndex] || 0) + 1 });
+      });
+      setMyVotes((prev) => ({ ...prev, [p.id]: optionIndex }));
+      showToast('Oyunuz kaydedildi 🗳️');
+    } catch (e: any) {
+      showToast('Oy kaydedilemedi: ' + (e?.code === 'permission-denied' ? 'yetki hatası (Firestore kuralları yayınlandı mı?)' : e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  const handleCreatePoll = async (data: { soru: string; kategori: PollItem['kategori']; secenekler: string[]; endsAt: Date | null }): Promise<boolean> => {
+    if (!isRealStaff || !user) {
+      showToast('Anketi yalnızca editör veya yönetici oluşturabilir.', true);
+      return false;
+    }
+    const opts = data.secenekler.map((o) => o.trim()).filter(Boolean);
+    if (data.soru.trim().length < 5) { showToast('Anket sorusu en az 5 karakter olmalı.', true); return false; }
+    if (opts.length < 2 || opts.length > 6) { showToast('Anket 2 ile 6 seçenek içermeli.', true); return false; }
+    if (new Set(opts.map((o) => o.toLocaleLowerCase('tr-TR'))).size !== opts.length) { showToast('Seçenekler birbirinden farklı olmalı.', true); return false; }
+    const counters: Record<string, number> = {};
+    opts.forEach((_, i) => { counters['c' + i] = 0; });
+    try {
+      await addDoc(collection(db, 'polls'), {
+        soru: data.soru.trim(),
+        kategori: data.kategori,
+        secenekler: opts,
+        aktif: true,
+        toplam: 0,
+        ...counters,
+        ...(data.endsAt ? { endsAt: data.endsAt } : {}),
+        createdBy: user.uid,
+        authorName: profile?.name || user.displayName || 'Yönetim',
+        createdAt: serverTimestamp()
+      });
+      showToast('Anket yayınlandı 🗳️');
+      return true;
+    } catch (e: any) {
+      showToast('Anket oluşturulamadı: ' + (e?.code === 'permission-denied' ? 'yetkiniz yok (Firestore kuralları yayınlandı mı?)' : e?.message || 'bilinmeyen hata'), true);
+      return false;
+    }
+  };
+
+  const handleTogglePoll = async (p: PollItem) => {
+    if (!isRealStaff) return;
+    try {
+      await updateDoc(doc(db, 'polls', p.id), { aktif: !p.aktif });
+      showToast(p.aktif ? 'Anket kapatıldı.' : 'Anket yeniden açıldı.');
+    } catch (e: any) {
+      showToast('Anket güncellenemedi: ' + (e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  const handleDeletePoll = async (p: PollItem) => {
+    if (!isRealStaff) return;
+    if (!confirm(`"${p.soru}" anketi ve tüm oyları silinsin mi?`)) return;
+    try {
+      const votes = await getDocs(collection(db, 'polls', p.id, 'votes'));
+      await Promise.all(votes.docs.map((d) => deleteDoc(d.ref)));
+      await deleteDoc(doc(db, 'polls', p.id));
+      showToast('Anket silindi. 🗑️');
+    } catch (e: any) {
+      showToast('Anket silinemedi: ' + (e?.code === 'permission-denied' ? 'yetkiniz yok' : e?.message || 'bilinmeyen hata'), true);
+    }
   };
 
   // Usta örnek çalışma fotoğrafları (gerçek yükleme; en fazla 12)
@@ -4112,7 +4180,7 @@ export default function App() {
           requestId,
           esnafUid: 'demo_esnaf',
           esnafIsyeri: profile?.isyeri || 'Mutlular Usta Servisi',
-          esnafTelefon: '05321112233',
+          esnafTelefon: profile?.telefon || '',
           fiyat: price,
           mesaj: message,
           tahminiSure: duration,
@@ -7863,38 +7931,35 @@ export default function App() {
           <div className="space-y-4">
             {/* Üst Bilgi Kartı */}
             <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-black">
-                    🏛️
-                  </span>
-                  <div>
-                    <h2 className="font-black text-base sm:text-lg text-slate-900 tracking-tight">
-                      Mahalle Meclisi &amp; Ortak Akıl
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Mutlular sakinlerinin ortak kararları, canlı anketler ve muhtarlık gündemi.
-                    </p>
-                  </div>
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-black">🏛️</span>
+                <div>
+                  <h2 className="font-black text-base sm:text-lg text-slate-900 tracking-tight">Mahalle Meclisi &amp; Ortak Akıl</h2>
+                  <p className="text-xs text-slate-500">Mutlular sakinlerinin ortak kararları ve canlı anketler.</p>
                 </div>
               </div>
-
-              <button
-                onClick={() => showToast('Yeni gündem maddesi öneriniz meclis divanına iletildi! 📝')}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-black px-4 py-2.5 rounded-2xl shadow-xs flex items-center gap-2 transition-all cursor-pointer self-start sm:self-auto"
-              >
-                <PlusCircle className="w-4 h-4" /> Gündem Maddesi Öner
-              </button>
+              {isRealStaff && (
+                <button
+                  onClick={() => {
+                    setAdminOpenTab('polls');
+                    setShowAdminPanelModal(true);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-black px-4 py-2.5 rounded-2xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" /> Anket Oluştur
+                </button>
+              )}
             </div>
 
             {/* Kategori Filtresi */}
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
               {[
-                { id: 'tumu', label: 'Tüm Anketler & Kararlar' },
-                { id: 'guncel', label: '🔥 Aktif Oylamalar' },
+                { id: 'tumu', label: 'Tüm Anketler' },
+                { id: 'guncel', label: '🔥 Açık Oylamalar' },
                 { id: 'ulasim', label: '🚲 Ulaşım & Yol' },
                 { id: 'cevre', label: '🌳 Park & Çevre' },
-                { id: 'sosyal', label: '🤝 Sosyal & Dayanışma' }
+                { id: 'sosyal', label: '🤝 Sosyal & Dayanışma' },
+                { id: 'genel', label: '📋 Genel' }
               ].map((item) => (
                 <button
                   key={item.id}
@@ -7910,116 +7975,86 @@ export default function App() {
               ))}
             </div>
 
-            {/* Canlı Anketler Listesi */}
-            <div className="space-y-3.5">
-              {polls
-                .filter(poll => {
-                  if (meclisFilter === 'tumu' || meclisFilter === 'guncel') return true;
-                  return poll.category === meclisFilter;
-                })
-                .map((poll) => {
-                const totalVotes = poll.evetCount + poll.hayirCount;
-                const evetPercent = totalVotes > 0 ? Math.round((poll.evetCount / totalVotes) * 100) : 50;
-                const hayirPercent = 100 - evetPercent;
-
+            {(() => {
+              const visible = polls.filter((poll) => {
+                if (meclisFilter === 'tumu') return true;
+                if (meclisFilter === 'guncel') return isPollOpen(poll);
+                return poll.kategori === meclisFilter;
+              });
+              if (visible.length === 0) {
                 return (
-                  <div
-                    key={poll.id}
-                    className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-2xs space-y-3.5"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-2xl">{poll.icon}</span>
-                        <div>
-                          <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                            {poll.category === 'ulasim' ? 'Ulaşım & Yol' : poll.category === 'cevre' ? 'Park & Çevre' : 'Sosyal & Pazar'}
-                          </span>
-                          <h3 className="font-black text-sm sm:text-base text-slate-900 mt-0.5">
-                            {poll.title}
-                          </h3>
-                        </div>
-                      </div>
-
-                      <span className="bg-red-50 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-200 flex items-center gap-1 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-                        Oylama Açık
-                      </span>
-                    </div>
-
-                    {/* İlerleme Çubukları */}
-                    <div className="space-y-2">
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
-                          <span>Evet ({poll.evetCount} oy)</span>
-                          <span className="text-blue-600">%{evetPercent}</span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                          <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${evetPercent}%` }} />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
-                          <span>Hayır ({poll.hayirCount} oy)</span>
-                          <span className="text-slate-400">%{hayirPercent}</span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                          <div className="bg-slate-300 h-2.5 rounded-full transition-all duration-500" style={{ width: `${hayirPercent}%` }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Oylama Aksiyonları */}
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
-                      <div className="text-xs text-slate-400">
-                        Toplam <strong>{totalVotes} komşu</strong> oy kullandı
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleVotePoll(poll.id, 'evet')}
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1 ${
-                            poll.userVote === 'evet'
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                          }`}
-                        >
-                          <Check className="w-3.5 h-3.5" /> Evet
-                        </button>
-
-                        <button
-                          onClick={() => handleVotePoll(poll.id, 'hayir')}
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-                            poll.userVote === 'hayir'
-                              ? 'bg-slate-800 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                          }`}
-                        >
-                          Hayır
-                        </button>
-                      </div>
-                    </div>
+                  <div className="bg-white rounded-3xl p-8 border border-slate-200/90 text-center space-y-2">
+                    <div className="text-4xl">🗳️</div>
+                    <h4 className="font-black text-base text-slate-900">Şu an gösterilecek anket yok</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">Yeni anketler yayınlandığında burada oy verebilirsiniz.</p>
                   </div>
                 );
-              })}
-            </div>
+              }
+              const catLabel: Record<string, string> = { ulasim: 'Ulaşım & Yol', cevre: 'Park & Çevre', sosyal: 'Sosyal & Dayanışma', genel: 'Genel' };
+              return (
+                <div className="space-y-3.5">
+                  {visible.map((poll) => {
+                    const open = isPollOpen(poll);
+                    const mine = myVotes[poll.id];
+                    const hasVoted = mine !== undefined;
+                    const showResults = hasVoted || !open || isRealStaff;
+                    return (
+                      <div key={poll.id} className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-2xs space-y-3.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">{catLabel[poll.kategori] || 'Genel'}</span>
+                            <h3 className="font-black text-sm sm:text-base text-slate-900 mt-1">{poll.soru}</h3>
+                          </div>
+                          {open ? (
+                            <span className="bg-red-50 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-100 flex items-center gap-1 shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" /> Oylama Açık
+                            </span>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">Kapandı</span>
+                          )}
+                        </div>
 
-            {/* Geçmişte Kabul Edilen Meclis Kararları */}
-            <div className="bg-white rounded-3xl border border-slate-200/80 p-5 shadow-2xs space-y-3">
-              <h3 className="font-black text-sm text-slate-900 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Karara Bağlanan Mahalle Talepleri
-              </h3>
-              <div className="divide-y divide-slate-100 text-xs text-slate-600">
-                <div className="py-2.5 flex items-center justify-between">
-                  <span className="font-bold text-slate-800">✅ 3. Sokak Hız Kasısi ve Uyarı Levhaları Yapımı</span>
-                  <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Tamamlandı</span>
+                        <div className="space-y-2">
+                          {poll.secenekler.map((opt, i) => {
+                            const count = poll.sayilar[i] || 0;
+                            const pct = poll.toplam > 0 ? Math.round((count / poll.toplam) * 100) : 0;
+                            const chosen = mine === i;
+                            return (
+                              <div key={i}>
+                                {showResults ? (
+                                  <div>
+                                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+                                      <span>{chosen ? '✅ ' : ''}{opt} ({count} oy)</span>
+                                      <span className={chosen ? 'text-blue-600' : 'text-slate-400'}>%{pct}</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                      <div className={`${chosen ? 'bg-blue-600' : 'bg-slate-300'} h-2.5 rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => handleVotePoll(poll, i)}
+                                    className="w-full text-left px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-xs font-bold text-slate-800 transition-all cursor-pointer"
+                                  >
+                                    {opt}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 text-xs text-slate-400 flex items-center justify-between gap-2 flex-wrap">
+                          <span>Toplam <strong>{poll.toplam} komşu</strong> oy kullandı</span>
+                          {poll.endsAtMs > 0 && <span>Bitiş: {new Date(poll.endsAtMs).toLocaleDateString('tr-TR')}</span>}
+                          {!hasVoted && open && !user && <span className="font-bold text-blue-600">Oy vermek için giriş yapın</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="py-2.5 flex items-center justify-between">
-                  <span className="font-bold text-slate-800">✅ Çocuk Parkı Aydınlatma Direklerinin Yenilenmesi</span>
-                  <span className="text-[11px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded">Uygulamada</span>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         )}
 
@@ -8255,7 +8290,7 @@ export default function App() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 { title: 'MUTLULAR HİZMET', icon: Wrench, count: '18 Sektör', tab: 'services', color: 'bg-orange-50 text-orange-600' },
-                { title: 'Mahalle Meclisi', icon: Megaphone, count: '3 Anket', tab: 'meclis', color: 'bg-blue-50 text-blue-600' },
+                { title: 'Mahalle Meclisi', icon: Megaphone, count: `${polls.filter((p) => isPollOpen(p)).length} Anket`, tab: 'meclis', color: 'bg-blue-50 text-blue-600' },
                 { title: 'Esnaf & Dükkanlar', icon: Store, count: `${businesses.length} Kayıt`, tab: 'esnaf', color: 'bg-emerald-50 text-emerald-600' },
                 { title: 'MUTLULAR ALIM SATIM', icon: ShoppingBag, count: '12 İlan', tab: 'market', color: 'bg-amber-50 text-amber-600' },
                 { title: 'Kayıp & Buluntu', icon: Search, count: '2 Kayıp', tab: 'lostfound', color: 'bg-purple-50 text-purple-600' },
@@ -8766,12 +8801,7 @@ export default function App() {
 
               <div className="flex items-center gap-1.5 font-bold px-2 py-1">
                 <MessageSquare className="w-4 h-4 text-slate-500" />
-                <span>{(commentsMap[selectedNews.id || 'haber_park']?.length || 0) + 43}</span>
-              </div>
-
-              <div className="flex items-center gap-1.5 font-bold text-amber-500 px-2 py-1">
-                <Star className="w-4 h-4 fill-amber-400 text-amber-500" />
-                <span>{newsRatingMap[selectedNews.id || 'haber_park'] ? (newsRatingMap[selectedNews.id || 'haber_park'].score).toFixed(1) : '4.8'}</span>
+                <span>{(commentsMap[selectedNews.id || 'haber_park']?.length || 0)}</span>
               </div>
 
               <button
@@ -8783,46 +8813,11 @@ export default function App() {
               </button>
             </div>
 
-            {/* ⭐ İNTERAKTİF HABER PUANLAMA KUTUSU (SCREEN 2) */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs text-center space-y-2">
-              <h4 className="text-xs font-black text-slate-900">Bu habere puan verin</h4>
-              <div className="flex items-center justify-center gap-2 py-1">
-                {[1, 2, 3, 4, 5].map((starVal) => {
-                  const currentScore = newsRatingMap[selectedNews.id || 'haber_park']?.score || 4.8;
-                  const isFilled = starVal <= Math.round(currentScore);
-                  return (
-                    <button
-                      key={starVal}
-                      onClick={() => {
-                        const newsId = selectedNews.id || 'haber_park';
-                        const current = newsRatingMap[newsId] || { score: 4.8, count: 124 };
-                        const newCount = current.count + 1;
-                        const newScore = ((current.score * current.count) + starVal) / newCount;
-                        setNewsRatingMap(prev => ({
-                          ...prev,
-                          [newsId]: { score: newScore, count: newCount }
-                        }));
-                        showToast(`Puanınız kaydedildi: ${starVal} Yıldız ⭐`);
-                      }}
-                      className="p-1 hover:scale-125 transition-transform cursor-pointer"
-                    >
-                      <Star className={`w-6 h-6 ${isFilled ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-[11px] font-bold text-slate-400">
-                {newsRatingMap[selectedNews.id || 'haber_park'] 
-                  ? `${newsRatingMap[selectedNews.id || 'haber_park'].score.toFixed(1)} / 5 (${newsRatingMap[selectedNews.id || 'haber_park'].count} oy)`
-                  : '4.8 / 5 (124 oy)'}
-              </p>
-            </div>
-
             {/* 💬 YORUMLAR BÖLÜMÜ (SCREEN 2) */}
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-sm sm:text-base text-slate-900">
-                  Yorumlar ({(commentsMap[selectedNews.id || 'haber_park']?.length || 0) + 43})
+                  Yorumlar ({(commentsMap[selectedNews.id || 'haber_park']?.length || 0)})
                 </h3>
                 <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
                   En İyi Yorumlar
@@ -9065,7 +9060,7 @@ export default function App() {
                   status: isDirectPublish ? 'approved' : 'pending',
                   isTip: !isDirectPublish,
                   authorName: profile?.name || 'Mahalle Sakini',
-                  authorPhone: telefonInput || profile?.telefon || '0532 111 22 33',
+                  authorPhone: telefonInput || profile?.telefon || '',
                   authorRole: profile?.role || demoRole || 'sakin',
                   authorUid: user?.uid || 'user_demo',
                   sonDakika: isDirectPublish ? sonDakikaInput : false,
@@ -9134,7 +9129,7 @@ export default function App() {
               ) : (
                 <div>
                   <label className="text-[11px] font-bold text-slate-500 block mb-1">İletişim Telefonunuz (Teyit için)</label>
-                  <input name="telefon" type="tel" defaultValue={profile?.telefon || '0532 111 22 33'} placeholder="053x xxx xx xx" className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500" />
+                  <input name="telefon" type="tel" defaultValue={profile?.telefon || ''} placeholder="053x xxx xx xx" className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500" />
                 </div>
               )}
 
@@ -9635,7 +9630,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-gray-500 block mb-1">İletişim Tel</label>
-                  <input required name="iletisimTelefon" defaultValue="05321112233" className="w-full text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500" />
+                  <input required name="iletisimTelefon" defaultValue={profile?.telefon || ''} placeholder="05xx xxx xx xx" className="w-full text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500" />
                 </div>
               </div>
 
@@ -12334,29 +12329,6 @@ export default function App() {
                 </a>
               </div>
 
-              {/* Nöbetçi Eczaneler Hızlı Butonu */}
-              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 shadow-xs">
-                <div className="flex items-center gap-3">
-                  <span className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-xl shadow-sm">
-                    💊
-                  </span>
-                  <div>
-                    <h4 className="font-black text-sm text-emerald-950">Nöbetçi Eczaneler</h4>
-                    <p className="text-[11px] text-emerald-700">Bugün nöbetçi olan en yakın eczaneler</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEmergencyModal(false);
-                    setActiveCityModal('eczane');
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-3.5 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer"
-                >
-                  Listeyi Gör
-                </button>
-              </div>
-
               {/* Diğer Hizmet Numaraları Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {[
@@ -12781,6 +12753,11 @@ export default function App() {
         onSaveLive={handleSaveLive}
         shareSources={adminShareSources}
         onPrepareShare={openShareStudio}
+        polls={polls}
+        onCreatePoll={handleCreatePoll}
+        onTogglePoll={handleTogglePoll}
+        onDeletePoll={handleDeletePoll}
+        openTab={adminOpenTab}
         pendingBusinesses={pendingBusinesses}
         pendingCampaigns={pendingCampaigns}
         onApproveBusiness={handleApproveBusiness}
