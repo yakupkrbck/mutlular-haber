@@ -1234,13 +1234,6 @@ export function MutlularUstalarSection({
                 <p className="text-xs font-bold text-emerald-800 truncate">
                   {master.profession}
                 </p>
-                <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                  <span className="flex items-center gap-0.5 text-amber-500 font-black">
-                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                    <span>{master.rating}</span>
-                  </span>
-                  <span>({master.reviewCount} yorum)</span>
-                </div>
                 <p className="text-[10px] text-slate-400 flex items-center gap-0.5 truncate">
                   <MapPin className="w-2.5 h-2.5 shrink-0" />
                   <span>{master.neighborhood}</span>
@@ -2133,7 +2126,7 @@ export function MutlularSearchModal({
                             {master.profession}
                           </p>
                           <p className="text-[10px] text-slate-400">
-                            {master.neighborhood} • ⭐ {master.rating} ({master.reviewCount})
+                            {master.neighborhood}
                           </p>
                         </div>
                       </div>

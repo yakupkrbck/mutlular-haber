@@ -337,9 +337,6 @@ export function CityServicesModal({ activeModal, onClose, onShowToast, deceasedL
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center justify-between">
                       <h4 className="font-black text-slate-900 text-xs sm:text-sm truncate">{f.name}</h4>
-                      <span className="text-[10px] font-black bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded-md">
-                        ⭐ {f.rating}
-                      </span>
                     </div>
                     <p className="text-[11px] text-slate-500 font-medium">{f.specialty}</p>
                     <div className="text-[10px] text-slate-400 flex items-center gap-2">

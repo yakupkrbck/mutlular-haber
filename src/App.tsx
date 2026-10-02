@@ -1044,22 +1044,12 @@ export default function App() {
   const [myVotes, setMyVotes] = useState<Record<string, number>>({});
   const [adminOpenTab, setAdminOpenTab] = useState<string | undefined>(undefined);
 
-  // Haber yorumları (gerçek yorum sistemi FAZ 6'da; başlangıçta örnek yorum yoktur)
-  const [commentsMap, setCommentsMap] = useState<Record<string, Array<{
-    id: string;
-    author?: string;
-    authorName?: string;
-    avatar?: string;
-    authorAvatar?: string;
-    time?: string;
-    timeAgo?: string;
-    rating?: number;
-    stars?: number;
-    badge?: string;
-    text: string;
-    likes: number;
-    userLiked?: boolean;
-  }>>>({});
+  // Haber yorumları ve beğenileri: gerçek kayıtlar (comments / likes koleksiyonları)
+  interface NewsComment { id: string; uid: string; authorName: string; authorPhoto?: string; text: string; createdAtMs: number }
+  const [newsComments, setNewsComments] = useState<NewsComment[]>([]);
+  const [newsLikeCount, setNewsLikeCount] = useState(0);
+  const [myNewsLike, setMyNewsLike] = useState(false);
+  const lastCommentAtRef = useRef(0);
   const [commentInput, setCommentInput] = useState('');
   const [newCommentInput, setNewCommentInput] = useState('');
 
@@ -2754,6 +2744,110 @@ export default function App() {
       showToast('Anket silindi. 🗑️');
     } catch (e: any) {
       showToast('Anket silinemedi: ' + (e?.code === 'permission-denied' ? 'yetkiniz yok' : e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  // ── HABER YORUMLARI VE BEĞENİLERİ (gerçek) ──
+  const openNewsId = selectedNews?.id || '';
+  const loadNewsLikes = async (id: string) => {
+    try {
+      const c = await getCountFromServer(query(collection(db, 'likes'), where('contentId', '==', id), where('contentType', '==', 'haber')));
+      setNewsLikeCount(c.data().count);
+      if (user) {
+        const mine = await getDoc(doc(db, 'likes', `haber_${id}_${user.uid}`));
+        setMyNewsLike(mine.exists());
+      } else {
+        setMyNewsLike(false);
+      }
+    } catch (_) {
+      /* sayaç okunamazsa 0 kalır */
+    }
+  };
+
+  useEffect(() => {
+    if (!openNewsId) {
+      setNewsComments([]);
+      setNewsLikeCount(0);
+      setMyNewsLike(false);
+      return;
+    }
+    loadNewsLikes(openNewsId);
+    const q = query(collection(db, 'comments'), where('contentId', '==', openNewsId), where('status', '==', 'visible'));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const items: NewsComment[] = [];
+        snap.forEach((d) => {
+          const x: any = d.data();
+          if (x.contentType !== 'haber') return;
+          items.push({ id: d.id, uid: x.uid, authorName: x.authorName || 'Mahalleli', authorPhoto: x.authorPhoto, text: x.text || '', createdAtMs: toMillis(x.createdAt) || Date.now() });
+        });
+        items.sort((a, b) => b.createdAtMs - a.createdAtMs);
+        setNewsComments(items);
+      },
+      (err) => console.warn('comments:', err.message)
+    );
+  }, [openNewsId, user?.uid]);
+
+  const requireLogin = (msg: string) => {
+    showToast(msg, true);
+    setAuthMode('login');
+    setShowAuthModal(true);
+  };
+
+  const handleToggleNewsLike = async () => {
+    if (!openNewsId) return;
+    if (!user) return requireLogin('Beğenmek için önce giriş yapmalısınız.');
+    const ref = doc(db, 'likes', `haber_${openNewsId}_${user.uid}`);
+    try {
+      if (myNewsLike) {
+        await deleteDoc(ref);
+        setMyNewsLike(false);
+        setNewsLikeCount((n) => Math.max(0, n - 1));
+      } else {
+        await setDoc(ref, { contentType: 'haber', contentId: openNewsId, uid: user.uid, createdAt: serverTimestamp() });
+        setMyNewsLike(true);
+        setNewsLikeCount((n) => n + 1);
+      }
+    } catch (e: any) {
+      showToast('Beğeni kaydedilemedi: ' + (e?.code === 'permission-denied' ? 'yetki hatası (Firestore kuralları yayınlandı mı?)' : e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  const handleAddNewsComment = async () => {
+    const text = newCommentInput.trim();
+    if (!text || !openNewsId) return;
+    if (!user) return requireLogin('Yorum yapmak için önce giriş yapmalısınız.');
+    if (text.length > 500) return showToast('Yorum en fazla 500 karakter olabilir.', true);
+    if (Date.now() - lastCommentAtRef.current < 8000) return showToast('Lütfen birkaç saniye bekleyip tekrar deneyin.', true);
+    if (newsComments.some((c) => c.uid === user.uid && c.text === text)) return showToast('Bu yorumu zaten yaptınız.', true);
+    try {
+      await addDoc(collection(db, 'comments'), {
+        contentType: 'haber',
+        contentId: openNewsId,
+        uid: user.uid,
+        authorName: (profile?.name || user.displayName || 'Mahalleli').slice(0, 60),
+        authorPhoto: profile?.photoURL || user.photoURL || '',
+        text,
+        status: 'visible',
+        createdAt: serverTimestamp()
+      });
+      lastCommentAtRef.current = Date.now();
+      setNewCommentInput('');
+      showToast('Yorumunuz yayınlandı 💬');
+    } catch (e: any) {
+      showToast('Yorum kaydedilemedi: ' + (e?.code === 'permission-denied' ? 'yetki hatası (Firestore kuralları yayınlandı mı?)' : e?.message || 'bilinmeyen hata'), true);
+    }
+  };
+
+  const handleDeleteNewsComment = async (c: NewsComment) => {
+    if (!user || (c.uid !== user.uid && !isRealStaff)) return;
+    if (!confirm('Bu yorum silinsin mi?')) return;
+    try {
+      await deleteDoc(doc(db, 'comments', c.id));
+      showToast('Yorum silindi.');
+    } catch (e: any) {
+      showToast('Yorum silinemedi: ' + (e?.message || 'bilinmeyen hata'), true);
     }
   };
 
@@ -5069,12 +5163,16 @@ export default function App() {
 
                         {/* İstatistikler */}
                         <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between text-[10px] text-slate-300 font-semibold">
-                          <span className="flex items-center gap-1 text-amber-300">
-                            <Eye className="w-3 h-3" /> {(trendItem.okunmaSayisi || 120).toLocaleString('tr-TR')}
-                          </span>
-                          <span className="flex items-center gap-1 text-rose-400">
-                            <Heart className="w-3 h-3 fill-rose-500" /> {trendItem.begeniSayisi || 15}
-                          </span>
+                          {(trendItem.okunmaSayisi || 0) > 1 && (
+                            <span className="flex items-center gap-1 text-amber-300">
+                              <Eye className="w-3 h-3" /> {(trendItem.okunmaSayisi || 0).toLocaleString('tr-TR')}
+                            </span>
+                          )}
+                          {(trendItem.begeniSayisi || 0) > 0 && (
+                            <span className="flex items-center gap-1 text-rose-400">
+                              <Heart className="w-3 h-3 fill-rose-500" /> {trendItem.begeniSayisi}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -5279,14 +5377,18 @@ export default function App() {
                             ✍️ {item.authorName}
                           </span>
                           <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1 font-semibold text-slate-500">
-                              <Eye className="w-3.5 h-3.5 text-slate-400" />
-                              {(item.okunmaSayisi || 150).toLocaleString('tr-TR')}
-                            </span>
-                            <span className="flex items-center gap-1 text-rose-600 font-bold">
-                              <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-                              {item.begeniSayisi || 34}
-                            </span>
+                            {(item.okunmaSayisi || 0) > 1 && (
+                              <span className="flex items-center gap-1 font-semibold text-slate-500">
+                                <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                {(item.okunmaSayisi || 0).toLocaleString('tr-TR')}
+                              </span>
+                            )}
+                            {(item.begeniSayisi || 0) > 0 && (
+                              <span className="flex items-center gap-1 text-rose-600 font-bold">
+                                <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
+                                {item.begeniSayisi}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -6735,12 +6837,6 @@ export default function App() {
                                   </span>
                                 </div>
                                 <p className="text-xs font-semibold text-slate-600">{master.businessName}</p>
-                                <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                                  <span className="text-amber-500 font-bold flex items-center gap-0.5">
-                                    ⭐ {master.rating}
-                                  </span>
-                                  <span>({master.reviewCount} Değerlendirme)</span>
-                                </div>
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-1">
@@ -7127,11 +7223,6 @@ export default function App() {
                               <p className="text-xs font-bold text-slate-700 mt-0.5">{master.businessName}</p>
                               
                               <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
-                                <span className="text-amber-500 font-black flex items-center gap-1">
-                                  ⭐ {master.rating}
-                                </span>
-                                <span>({master.reviewCount} Değerlendirme)</span>
-                                <span className="text-slate-400">•</span>
                                 <span className="text-slate-600 font-medium">{master.experience}</span>
                               </div>
                             </div>
@@ -8729,12 +8820,17 @@ export default function App() {
 
           {/* Haber Gövdesi */}
           <div className="max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-28">
-            {/* SON DAKİKA Rozeti */}
-            <div>
-              <span className="bg-red-600 text-white text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs inline-flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                SON DAKİKA
-              </span>
+            {/* Rozet: yalnızca gerçekten son dakika işaretli haberlerde */}
+            <div className="flex items-center gap-2">
+              {selectedNews.sonDakika && (
+                <span className="bg-red-600 text-white text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  SON DAKİKA
+                </span>
+              )}
+              {selectedNews.kategori && (
+                <span className="bg-slate-100 text-slate-600 text-[11px] font-black px-3 py-1 rounded-full">{selectedNews.kategori}</span>
+              )}
             </div>
 
             {/* Manşet Başlığı */}
@@ -8742,7 +8838,7 @@ export default function App() {
               {selectedNews.baslik}
             </h1>
 
-            {/* Yazar Bilgisi Şeridi */}
+            {/* Yayın bilgisi: yalnızca kayıtlı gerçek veriler */}
             <div className="flex items-center justify-between gap-3 pt-1 text-xs">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-full bg-red-600 text-white font-black flex items-center justify-center text-xs shadow-xs shrink-0">
@@ -8750,58 +8846,50 @@ export default function App() {
                 </div>
                 <div>
                   <div className="font-black text-slate-900 flex items-center gap-1">
-                    <span>Mutlular Haber</span>
+                    <span>{selectedNews.authorName || 'Mutlular Haber'}</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500 text-white" />
                   </div>
-                  <div className="text-[11px] text-slate-400">
-                    2 saat önce · 1.8K görüntülenme
-                  </div>
+                  {selectedNews.tarihStr && <div className="text-[11px] text-slate-400">{selectedNews.tarihStr}</div>}
                 </div>
               </div>
 
-              <span className="bg-slate-100 text-slate-600 font-bold text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
-                <Eye className="w-3.5 h-3.5 text-slate-400" /> 1.8K
-              </span>
+              {(selectedNews.okunmaSayisi || 0) > 1 && (
+                <span className="bg-slate-100 text-slate-600 font-bold text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <Eye className="w-3.5 h-3.5 text-slate-400" /> {(selectedNews.okunmaSayisi || 0).toLocaleString('tr-TR')}
+                </span>
+              )}
             </div>
 
-            {/* Büyük Manşet Fotoğrafı */}
-            <div className="w-full aspect-[16/10] rounded-3xl overflow-hidden shadow-sm bg-slate-100 border border-slate-200/80">
-              <img
-                src={selectedNews.imageURL || "https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1200&q=80"}
-                alt={selectedNews.baslik}
-                className="w-full h-full object-cover"
-              />
-            </div>
+            {/* Büyük Manşet Fotoğrafı (yalnızca yüklenmiş fotoğraf varsa) */}
+            {selectedNews.imageURL && (
+              <div className="w-full aspect-[16/10] rounded-3xl overflow-hidden shadow-sm bg-slate-100 border border-slate-200/80">
+                <img src={selectedNews.imageURL} alt={selectedNews.baslik} className="w-full h-full object-cover" />
+              </div>
+            )}
 
             {/* Haber Metni */}
             <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-2xs space-y-3.5 text-sm sm:text-base text-slate-700 leading-relaxed">
-              <p>
-                {selectedNews.icerik || selectedNews.ozet || "Mahallemizin merkezinde yer alan eski atıl alan, belediyemizin ve mahalle sakinlerimizin ortak çalışmasıyla modern bir yaşam ve dinlenme parkına dönüştürüldü. Proje kapsamında çocuk oyun alanları, tartan pist yürüyüş yolları ve oturma kamelyaları mahalleye kazandırıldı."}
-              </p>
-              <p>
-                Parkta çocuklar için güvenli kauçuk zeminli oyun grupları, spor yapmak isteyen komşularımız için açık hava fitness aletleri ve yürüyüş parkuru yer alıyor. Ayrıca çevre aydınlatması yenilenerek 24 saat aydınlık ve güvenli bir ortam oluşturuldu.
-              </p>
-              <p>
-                Açılış törenine mahalle muhtarımız ve çok sayıda sakin katıldı. Muhtarımız yaptığı konuşmada "Mahallemize yakışır, yeşille iç içe güzel bir yaşam alanı kazandırdık. Tüm komşularımıza hayırlı olsun" dedi.
-              </p>
+              {String(selectedNews.icerik || selectedNews.ozet || '')
+                .split(/\n{2,}/)
+                .filter((para) => para.trim())
+                .map((para, i) => (
+                  <p key={i} className="whitespace-pre-line">{para.trim()}</p>
+                ))}
             </div>
 
             {/* Tepkiler & Etkileşim Çubuğu */}
             <div className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-2xs flex items-center justify-between text-xs text-slate-600">
               <button
-                onClick={() => {
-                  setSelectedNews({ ...selectedNews, begeniSayisi: (selectedNews.begeniSayisi || 128) + 1 });
-                  showToast('Beğenildi! 👍');
-                }}
-                className="flex items-center gap-1.5 font-bold hover:text-red-600 transition-colors cursor-pointer px-2 py-1 rounded-lg hover:bg-red-50"
+                onClick={handleToggleNewsLike}
+                className={`flex items-center gap-1.5 font-bold transition-colors cursor-pointer px-2 py-1 rounded-lg ${myNewsLike ? 'text-red-600' : 'text-slate-600 hover:text-red-600'}`}
               >
-                <ThumbsUp className="w-4 h-4 text-slate-500" />
-                <span>{selectedNews.begeniSayisi || 128}</span>
+                <ThumbsUp className={`w-4 h-4 ${myNewsLike ? 'fill-red-600 text-red-600' : 'text-slate-500'}`} />
+                <span>{newsLikeCount}</span>
               </button>
 
               <div className="flex items-center gap-1.5 font-bold px-2 py-1">
                 <MessageSquare className="w-4 h-4 text-slate-500" />
-                <span>{(commentsMap[selectedNews.id || 'haber_park']?.length || 0)}</span>
+                <span>{newsComments.length}</span>
               </div>
 
               <button
@@ -8813,154 +8901,40 @@ export default function App() {
               </button>
             </div>
 
-            {/* 💬 YORUMLAR BÖLÜMÜ (SCREEN 2) */}
+            {/* 💬 YORUMLAR (gerçek kayıtlar) */}
             <div className="space-y-3 pt-2">
-              <div className="flex items-center justify-between">
-                <h3 className="font-black text-sm sm:text-base text-slate-900">
-                  Yorumlar ({(commentsMap[selectedNews.id || 'haber_park']?.length || 0)})
-                </h3>
-                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-                  En İyi Yorumlar
-                </span>
-              </div>
+              <h3 className="font-black text-sm sm:text-base text-slate-900">Yorumlar ({newsComments.length})</h3>
 
-              {/* Yorum Listesi */}
+              {newsComments.length === 0 && (
+                <div className="bg-white rounded-3xl p-5 border border-slate-200/80 text-center text-xs text-slate-500">
+                  Henüz yorum yok. İlk yorumu sen yaz.
+                </div>
+              )}
+
               <div className="space-y-3">
-                {/* Sabit Mockup Yorum 1: Ayşe Yılmaz */}
-                <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <img
-                        src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&auto=format&fit=crop&q=80"
-                        alt="Ayşe Yılmaz"
-                        className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                      />
-                      <div>
-                        <div className="text-xs font-black text-slate-900">Ayşe Yılmaz</div>
-                        <div className="flex items-center gap-1 text-[10px] text-amber-500">
-                          {[1, 2, 3, 4, 5].map(s => (
-                            <Star key={s} className="w-2.5 h-2.5 fill-amber-400" />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="bg-red-50 text-red-700 text-[9px] font-black px-2 py-0.5 rounded-full border border-red-200">
-                        MAHALLE YORUMU
-                      </span>
-                      <span className="text-[10px] text-slate-400">2 dk önce</span>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                    Harika bir gelişme! Çocuklar çok mutlu oldu. Emeği geçen herkese teşekkürler.
-                  </p>
-
-                  <div className="flex items-center gap-4 text-xs text-slate-500 font-bold pt-1">
-                    <button 
-                      onClick={() => showToast('Beğenildi ❤️')}
-                      className="flex items-center gap-1 text-red-600 hover:text-red-700 cursor-pointer"
-                    >
-                      <Heart className="w-3.5 h-3.5 fill-current" /> 12
-                    </button>
-                    <button 
-                      onClick={() => showToast('Yanıt yazma alanı açıldı')}
-                      className="hover:text-slate-800 cursor-pointer"
-                    >
-                      Yanıtla
-                    </button>
-                  </div>
-                </div>
-
-                {/* Sabit Mockup Yorum 2: Mehmet Demir */}
-                <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <img
-                        src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80"
-                        alt="Mehmet Demir"
-                        className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                      />
-                      <div>
-                        <div className="text-xs font-black text-slate-900">Mehmet Demir</div>
-                        <div className="flex items-center gap-1 text-[10px] text-amber-500">
-                          {[1, 2, 3, 4, 5].map(s => (
-                            <Star key={s} className="w-2.5 h-2.5 fill-amber-400" />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <span className="text-[10px] text-slate-400">15 dk önce</span>
-                  </div>
-
-                  <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                    Çok güzel düşünülmüş, özellikle yürüyüş yolları çok kullanışlı.
-                  </p>
-
-                  <div className="flex items-center gap-4 text-xs text-slate-500 font-bold pt-1">
-                    <button 
-                      onClick={() => showToast('Beğenildi ❤️')}
-                      className="flex items-center gap-1 text-red-600 hover:text-red-700 cursor-pointer"
-                    >
-                      <Heart className="w-3.5 h-3.5 fill-current" /> 5
-                    </button>
-                    <button 
-                      onClick={() => showToast('Yanıt yazma alanı açıldı')}
-                      className="hover:text-slate-800 cursor-pointer"
-                    >
-                      Yanıtla
-                    </button>
-                  </div>
-                </div>
-
-                {/* Kullanıcının Eklediği Yorumlar */}
-                {(commentsMap[selectedNews.id || 'haber_park'] || []).map((comm) => (
-                  <div key={comm.id} className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs space-y-2 animate-in fade-in">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={comm.authorAvatar}
-                          alt={comm.authorName}
-                          className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                        />
-                        <div>
-                          <div className="text-xs font-black text-slate-900">{comm.authorName}</div>
-                          <div className="flex items-center gap-1 text-[10px] text-amber-500">
-                            {[1, 2, 3, 4, 5].map(s => (
-                              <Star key={s} className={`w-2.5 h-2.5 ${s <= (comm.stars || 5) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-                            ))}
+                {newsComments.map((comm) => (
+                  <div key={comm.id} className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {comm.authorPhoto ? (
+                          <img src={comm.authorPhoto} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 font-black text-xs flex items-center justify-center shrink-0">
+                            {comm.authorName.charAt(0).toLocaleUpperCase('tr-TR')}
                           </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-xs font-black text-slate-900 truncate">{comm.authorName}</div>
+                          <div className="text-[10px] text-slate-400">{timeAgoTr(comm.createdAtMs)}</div>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <span className="bg-red-50 text-red-700 text-[9px] font-black px-2 py-0.5 rounded-full border border-red-200">
-                          MAHALLE YORUMU
-                        </span>
-                        <span className="text-[10px] text-slate-400">{comm.timeAgo}</span>
-                      </div>
+                      {user && (comm.uid === user.uid || isRealStaff) && (
+                        <button onClick={() => handleDeleteNewsComment(comm)} className="text-[11px] font-bold text-red-600 hover:text-red-700 cursor-pointer shrink-0">
+                          Sil
+                        </button>
+                      )}
                     </div>
-
-                    <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                      {comm.text}
-                    </p>
-
-                    <div className="flex items-center gap-4 text-xs text-slate-500 font-bold pt-1">
-                      <button 
-                        onClick={() => showToast('Beğenildi ❤️')}
-                        className="flex items-center gap-1 text-red-600 hover:text-red-700 cursor-pointer"
-                      >
-                        <Heart className="w-3.5 h-3.5 fill-current" /> {comm.likes}
-                      </button>
-                      <button 
-                        onClick={() => showToast('Yanıt yazma alanı açıldı')}
-                        className="hover:text-slate-800 cursor-pointer"
-                      >
-                        Yanıtla
-                      </button>
-                    </div>
+                    <p className="text-xs text-slate-700 leading-relaxed font-medium whitespace-pre-line">{comm.text}</p>
                   </div>
                 ))}
               </div>
@@ -8972,23 +8946,7 @@ export default function App() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (!newCommentInput.trim()) return;
-                const newsId = selectedNews.id || 'haber_park';
-                const newCommentObj = {
-                  id: `comm_${Date.now()}`,
-                  authorName: profile?.name || user?.displayName || 'Mehmet Yılmaz',
-                  authorAvatar: profile?.photoURL || user?.photoURL || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80',
-                  stars: 5,
-                  text: newCommentInput.trim(),
-                  timeAgo: 'Az önce',
-                  likes: 1
-                };
-                setCommentsMap(prev => ({
-                  ...prev,
-                  [newsId]: [newCommentObj, ...(prev[newsId] || [])]
-                }));
-                setNewCommentInput('');
-                showToast('Yorumunuz yayınlandı! 💬');
+                handleAddNewsComment();
               }}
               className="max-w-2xl mx-auto flex items-center gap-2.5"
             >
@@ -9002,7 +8960,7 @@ export default function App() {
                   type="text"
                   value={newCommentInput}
                   onChange={(e) => setNewCommentInput(e.target.value)}
-                  placeholder="Yorum yaz..."
+                  placeholder={user ? "Yorum yaz..." : "Yorum yazmak için giriş yapın"}
                   className="w-full bg-slate-100 hover:bg-slate-200/70 focus:bg-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-full border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all placeholder:text-slate-400"
                 />
               </div>
@@ -9374,7 +9332,7 @@ export default function App() {
                 if (marketModalType === 'emlak') {
                   const emlakTuru = (form.elements.namedItem('emlakTuru') as HTMLSelectElement).value as any;
                   const odaSayisi = (form.elements.namedItem('odaSayisi') as HTMLSelectElement).value;
-                  const metrekare = parseInt((form.elements.namedItem('metrekare') as HTMLInputElement).value) || 100;
+                  const metrekare = parseInt((form.elements.namedItem('metrekare') as HTMLInputElement).value) || 0;
                   const kat = (form.elements.namedItem('kat') as HTMLInputElement).value;
                   const isitma = (form.elements.namedItem('isitma') as HTMLInputElement).value;
 
@@ -11727,7 +11685,7 @@ export default function App() {
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     <span className="text-[10px] text-slate-400 block font-bold">m² (Brüt / Net)</span>
                     <span className="font-bold text-slate-900">
-                      {selectedEmlakItem.metrekare || 135} m² / {Math.round((selectedEmlakItem.metrekare || 135) * 0.88)} m²
+                      {selectedEmlakItem.metrekare ? `${selectedEmlakItem.metrekare} m²` : 'Belirtilmemiş'}
                     </span>
                   </div>
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
@@ -11755,7 +11713,7 @@ export default function App() {
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     <span className="text-[10px] text-slate-400 block font-bold">Otopark / Aidat</span>
                     <span className="font-bold text-slate-900">
-                      {selectedEmlakItem.otopark !== false ? 'Açık Otopark' : 'Sokak'} · ₺{selectedEmlakItem.aidat || 200}/ay
+                      {selectedEmlakItem.otopark !== false ? 'Açık Otopark' : 'Sokak'}{selectedEmlakItem.aidat ? ` · ₺${selectedEmlakItem.aidat}/ay` : ''}
                     </span>
                   </div>
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">

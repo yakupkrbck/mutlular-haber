@@ -57,6 +57,7 @@ const SECTIONS: SectionDef[] = [
   { col: 'service_requests', label: 'Hizmet Talepleri', emoji: '🛠️', map: (d) => ({ title: d.baslik || '(başlıksız)', sub: join(d.kategori, d.authorName, dateText(d.createdAt)), badge: d.status }) },
   { col: 'offers', label: 'Teklifler', emoji: '💰', map: (d) => ({ title: d.esnafIsyeri || '(usta)', sub: join(d.fiyat != null ? `${d.fiyat} TL` : '', d.requestTitle, dateText(d.createdAt)), badge: d.status }) },
   { col: 'polls', label: 'Anketler', emoji: '🗳️', map: (d) => ({ title: d.soru || '(sorusuz)', sub: join(`${d.toplam || 0} oy`, dateText(d.createdAt)), badge: d.aktif === false ? 'Kapalı' : 'Açık' }) },
+  { col: 'comments', label: 'Yorumlar (yeni)', emoji: '💬', map: (d) => ({ title: String(d.text || '').slice(0, 90) || '(boş yorum)', sub: join(d.authorName, d.contentType, dateText(d.createdAt)), badge: d.status }) },
   { col: 'hizmet_alanlari', label: 'Faaliyet Alanları', emoji: '🧰', map: (d) => ({ title: d.ad || '(adsız)', sub: 'Usta tarafından eklendi' }) },
   { col: 'users', label: 'Kullanıcılar', emoji: '👤', map: (d) => ({ title: d.name || d.email || '(isimsiz)', sub: join(d.email, d.isyeri), badge: d.role === 'esnaf' ? (d.hesapTipi === 'usta' ? 'usta' : d.hesapTipi === 'esnaf' ? 'esnaf' : 'esnaf/usta (eski)') : d.role || 'sakin' }) }
 ];

@@ -506,13 +506,6 @@ export function MockupMasterCard({
           <p className="text-[11px] text-slate-500 truncate">
             {master.subCategories?.[0] || master.mainCategoryName || 'Elektrik Tesisatı'}
           </p>
-          <div className="flex items-center gap-1.5 text-[10px]">
-            <span className="flex items-center gap-0.5 text-amber-500 font-black">
-              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-              <span>{master.rating || 4.9}</span>
-            </span>
-            <span className="text-slate-400">({master.reviewCount || 128} yorum)</span>
-          </div>
           <p className="text-[10px] text-slate-400 flex items-center gap-0.5 truncate">
             <MapPin className="w-2.5 h-2.5 text-slate-400 shrink-0" />
             <span className="truncate">{master.address || 'Mehmet Akif Mah.'}</span>
@@ -859,13 +852,6 @@ export function MockupMasterDetailModal({
               <p className="text-xs text-slate-500 font-medium">
                 {master.mainCategoryName || 'Elektrik Tesisatı'}
               </p>
-              <div className="flex items-center gap-2 text-xs pt-1">
-                <span className="flex items-center gap-1 text-amber-500 font-black">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  <span>{master.rating || 4.9}</span>
-                </span>
-                <span className="text-slate-400">({master.reviewCount || 128} yorum)</span>
-              </div>
               <p className="text-xs text-slate-500 flex items-center gap-1 pt-1 font-medium">
                 <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 <span>{master.address || 'Mehmet Akif Mah. / Osmangazi'}</span>
