@@ -182,6 +182,9 @@ export function useAppController() {
   const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
   const [campaigns, setCampaigns] = useState<EsnafCampaign[]>([]);
   const [offersMap, setOffersMap] = useState<Record<string, ServiceOffer[]>>({});
+  // Kabul edilen tekliflerin usta telefonları (offers/{id}/private/iletisim); yalnızca talep sahibi, kabulden sonra okuyabilir.
+  const [ustaPhones, setUstaPhones] = useState<Record<string, string>>({});
+  const fetchedPhoneIdsRef = useRef<Set<string>>(new Set());
   const [notifSeenAt, setNotifSeenAt] = useState<number>(0);
   const [customAreas, setCustomAreas] = useState<HizmetAlani[]>([]);
   // Google ile ilk kez giren kullanıcının "hesabını tamamla" ekranı
@@ -1322,6 +1325,30 @@ export function useAppController() {
     return () => unsubs.forEach((u) => u());
   }, [user?.uid, profile?.role]);
 
+  // ── USTA TELEFONU: yalnızca KABUL EDİLMİŞ tekliflerde, talep sahibi için ayrı belgeden okunur ──
+  useEffect(() => {
+    if (!user) {
+      setUstaPhones({});
+      fetchedPhoneIdsRef.current = new Set();
+      return;
+    }
+    (Object.values(offersMap) as ServiceOffer[][]).flat().forEach((o) => {
+      const id = o.id;
+      if (!id || o.status !== 'accepted' || o.requestOwnerUid !== user.uid) return;
+      if (fetchedPhoneIdsRef.current.has(id)) return;
+      fetchedPhoneIdsRef.current.add(id);
+      getDoc(doc(db, 'offers', id, 'private', 'iletisim'))
+        .then((snap: any) => {
+          const tel = snap.exists() ? String((snap.data() as any).telefon || '') : '';
+          setUstaPhones((prev: Record<string, string>) => ({ ...prev, [id]: tel }));
+        })
+        .catch((err: any) => {
+          fetchedPhoneIdsRef.current.delete(id);
+          console.warn('usta telefonu:', err?.message);
+        });
+    });
+  }, [offersMap, user?.uid]);
+
   // ── BİLDİRİM İZLEME NOKTASI (en son ne zaman bakıldı) ──
   useEffect(() => {
     if (!user || !profile) return;
@@ -2055,7 +2082,8 @@ export function useAppController() {
       showToast('Bu talep için zaten bir teklif kabul edilmiş.', true);
       return;
     }
-    const siblings = (offersMap[req.id] || []).filter((o) => o.id && o.id !== offer.id);
+    // Kural gereği yalnızca hâlâ 'pending' olan diğer teklifler reddedilir.
+    const siblings = (offersMap[req.id] || []).filter((o) => o.id && o.id !== offer.id && o.status === 'pending');
     let musteriTelefon = (profile?.telefon || '').trim();
     if (musteriTelefon.replace(/\D/g, '').length < 10) {
       const typed = window.prompt('Ustanın sizi arayabilmesi için telefon numaranızı yazın (yalnızca kabul ettiğiniz usta görür):', '') || '';
@@ -3332,7 +3360,9 @@ export function useAppController() {
         const requestRef = doc(db, 'service_requests', requestId);
         const offerRef = doc(collection(db, 'offers'));
 
-        const creditLogRef = doc(collection(db, 'credit_transactions'));
+        // Kural gereği: kredi kaydının kimliği 'ofr_{teklifId}', telefon ayrı gizli belgede.
+        const creditLogRef = doc(db, 'credit_transactions', 'ofr_' + offerRef.id);
+        const privateRef = doc(db, 'offers', offerRef.id, 'private', 'iletisim');
 
         await runTransaction(db, async (tx) => {
           const esnafDoc = await tx.get(esnafRef);
@@ -3364,7 +3394,6 @@ export function useAppController() {
             requestTitle: reqData.baslik || '',
             esnafUid: user.uid,
             esnafIsyeri: profile.isyeri || profile.name || 'Esnaf',
-            esnafTelefon: profile.telefon || '',
             fiyat: price,
             mesaj: message,
             tahminiSure: duration,
@@ -3372,6 +3401,9 @@ export function useAppController() {
             status: 'pending',
             createdAt: serverTimestamp()
           });
+
+          // Usta telefonu teklif belgesinde değil, kabulden önce talep sahibine kapalı olan ayrı belgede.
+          tx.set(privateRef, { telefon: profile.telefon || '' });
 
           tx.update(requestRef, { offerCount: increment(1) });
         });
@@ -3875,7 +3907,7 @@ export function useAppController() {
     setEsnafCategoryFilter, searchQuery, setSearchQuery, newsSearchTerm, setNewsSearchTerm,
     newsSortBy, setNewsSortBy, lostFoundFilter, setLostFoundFilter, newsFilter, setNewsFilter,
     campaignFilter, setCampaignFilter, newsItems, setNewsItems, marketplaceItems,
-    setMarketplaceItems, lostFoundItems, setLostFoundItems, serviceRequests, campaigns, offersMap,
+    setMarketplaceItems, lostFoundItems, setLostFoundItems, serviceRequests, campaigns, offersMap, ustaPhones,
     showOnboarding, obRole, setObRole, obAd, setObAd, obSoyad, setObSoyad, obPhone, setObPhone,
     obIsyeri, setObIsyeri, obArea, setObArea, obCustomArea, setObCustomArea, obAdres, setObAdres,
     obSaving, authCustomArea, setAuthCustomArea, artisanKind, setArtisanKind, artisanCustomArea,
