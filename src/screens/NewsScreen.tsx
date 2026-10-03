@@ -1,4 +1,5 @@
 // Ekran: NewsScreen (eski App.tsx 5057–5413)
+import { tarihEtiketi } from '../serviceMatching';
 import { Newspaper, Eye, Heart, Search, X, Filter } from 'lucide-react';
 import { useApp } from '../app/AppContext';
 
@@ -130,7 +131,7 @@ export function NewsScreen() {
                       </h4>
                       <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-white/5">
                         <span className="truncate max-w-[110px] font-medium text-slate-300">✍️ {trendItem.authorName}</span>
-                        <span className="text-slate-400 font-medium">{trendItem.tarihStr}</span>
+                        <span className="text-slate-400 font-medium">{tarihEtiketi(trendItem)}</span>
                       </div>
                     </div>
                   </div>
@@ -304,7 +305,7 @@ export function NewsScreen() {
                         </div>
 
                         <div className="absolute bottom-2.5 right-3 text-[11px] text-white/90 font-medium">
-                          {item.tarihStr || 'Yeni'}
+                          {tarihEtiketi(item) || 'Yeni'}
                         </div>
                       </div>
                     )}

@@ -1,4 +1,5 @@
 // Ekran: DavetScreen (eski App.tsx 5418–5688)
+import { tarihEtiketi } from '../serviceMatching';
 import {
   Sparkles,
   Users,
@@ -191,7 +192,7 @@ export function DavetScreen() {
                                     <span className="font-bold text-slate-900">{tb.isim}: </span>
                                     <span>{tb.mesaj}</span>
                                   </div>
-                                  <span className="text-[9px] text-slate-400 shrink-0">{tb.tarihStr}</span>
+                                  <span className="text-[9px] text-slate-400 shrink-0">{tarihEtiketi(tb)}</span>
                                 </div>
                               ))}
                             </div>
