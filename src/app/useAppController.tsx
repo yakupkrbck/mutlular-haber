@@ -70,6 +70,8 @@ import {
   customAreaToMainCat,
   toMillis,
   timeAgoTr,
+  tarihEtiketi,
+  tarihStrNow,
   requestMatchesEsnaf,
   resolveKategoriId,
   cleanAreaName,
@@ -688,7 +690,7 @@ export function useAppController() {
     summary: n.ozet || (n.icerik ? n.icerik.substring(0, 180) : ''),
     category: n.kategori,
     imageUrl: (n as any).imageURL || undefined,
-    meta: n.tarihStr ? [n.tarihStr] : [],
+    meta: tarihEtiketi(n) ? [tarihEtiketi(n)] : [],
     url: getNewsShareUrl(n),
     contentId: n.id
   });
@@ -1232,7 +1234,7 @@ export function useAppController() {
       authorRole: demoRole === 'admin' ? 'admin' : 'editor',
       okunmaSayisi: 1,
       begeniSayisi: 0,
-      tarihStr: 'Az önce'
+      tarihStr: tarihStrNow()
     };
 
     setNewsItems(prev => [newItem, ...prev]);
@@ -1249,7 +1251,7 @@ export function useAppController() {
     const updated: SampleNewsItem = {
       ...tip,
       status: 'approved',
-      tarihStr: 'Az önce'
+      tarihStr: tarihStrNow()
     };
     setNewsItems(prev => prev.map(n => (n.id === tip.id || n.baslik === tip.baslik) ? updated : n));
 
@@ -2288,7 +2290,7 @@ export function useAppController() {
       id: `tebrik-${Date.now()}`,
       isim: senderName,
       mesaj: newTebrikMsg.trim(),
-      tarihStr: 'Az önce',
+      tarihStr: tarihStrNow(),
       katilimDurumu: newTebrikType
     };
 
@@ -2387,7 +2389,7 @@ export function useAppController() {
       authorName: author,
       authorPhotoURL: authorPhoto,
       mesaj: newCommentText.trim(),
-      tarihStr: 'Az önce'
+      tarihStr: tarihStrNow()
     };
 
     setKursuItems(prev => prev.map((k, i) => {
@@ -2446,7 +2448,7 @@ export function useAppController() {
       destekSayisi: 1,
       destekleyenler: [user?.uid || 'guest_user'],
       yorumlar: [],
-      tarihStr: 'Az önce',
+      tarihStr: tarihStrNow(),
       durum: 'acik',
       createdAt: new Date(),
     };
