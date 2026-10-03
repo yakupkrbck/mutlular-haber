@@ -1,5 +1,6 @@
 // Paylaşılan bağlantıdan açılan içerik sayfası (FAZ 2A).
 // Haber dışındaki içerik türleri (ilan, kayıp eşya, duyuru, vefat, esnaf kampanyası) için ortak, salt okunur görünüm.
+import { tarihEtiketi } from './serviceMatching';
 import React from 'react';
 import { X, Share2, Link2, Phone, MessageCircle } from 'lucide-react';
 import type { ContentKind, ContentType } from './links';
@@ -90,7 +91,7 @@ export function toViewModel(kind: ContentKind, d: any): ViewModel {
         badge: `🎤 ${d.kategori || 'Mahalle Kürsüsü'}`,
         title: d.baslik,
         image: firstPhoto,
-        lines: [d.authorName ? `✍️ ${d.authorName}` : '', d.konum ? `📍 ${d.konum}` : '', d.tarihStr ? `📅 ${d.tarihStr}` : ''].filter(Boolean),
+        lines: [d.authorName ? `✍️ ${d.authorName}` : '', d.konum ? `📍 ${d.konum}` : '', tarihEtiketi(d) ? `📅 ${tarihEtiketi(d)}` : ''].filter(Boolean),
         body: d.icerik
       };
     case 'kampanya':

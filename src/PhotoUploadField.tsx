@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Camera, Loader2, X } from 'lucide-react';
 import { uploadToCloudinary } from './cloudinary';
+import ImageCropModal from './ImageCropModal';
 
 interface PhotoUploadFieldProps {
   /** Kontrollü kullanım: mevcut fotoğraf adresi */
@@ -19,6 +20,8 @@ interface PhotoUploadFieldProps {
   round?: boolean;
   /** Örn. 'focus:border-blue-500' yerine buton rengi */
   accentClass?: string;
+  /** Kırpma penceresinin başlangıç oranı (genişlik / yükseklik). Varsayılan 4:3; yuvarlak alanda kare. */
+  aspect?: number;
 }
 
 export default function PhotoUploadField({
@@ -30,6 +33,7 @@ export default function PhotoUploadField({
   buttonLabel = 'Fotoğraf Yükle',
   round = false,
   accentClass = 'bg-slate-900 hover:bg-slate-800 text-white',
+  aspect = 4 / 3,
 }: PhotoUploadFieldProps) {
   const isControlled = value !== undefined;
   const [inner, setInner] = useState(defaultValue);
@@ -37,14 +41,16 @@ export default function PhotoUploadField({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  // Seçilen fotoğraf önce yakınlaştırma/kırpma penceresinde açılır; yükleme onaydan sonra başlar.
+  const [cropFile, setCropFile] = useState<File | null>(null);
 
   const setUrl = (url: string) => {
     if (!isControlled) setInner(url);
     onChange?.(url);
   };
 
-  const handleFile = async (file?: File | null) => {
-    if (!file) return;
+  const upload = async (file: File) => {
+    setCropFile(null);
     setError('');
     setUploading(true);
     try {
@@ -54,8 +60,23 @@ export default function PhotoUploadField({
       setError(e?.message || 'Fotoğraf yüklenemedi. Lütfen tekrar deneyin.');
     } finally {
       setUploading(false);
-      if (inputRef.current) inputRef.current.value = '';
     }
+  };
+
+  const handleFile = (file?: File | null) => {
+    if (inputRef.current) inputRef.current.value = '';
+    if (!file) return;
+    setError('');
+    if (!file.type.startsWith('image/')) {
+      setError('Lütfen bir fotoğraf dosyası seçiniz.');
+      return;
+    }
+    // GIF / SVG kırpılamaz (hareket ve vektör kaybolur): doğrudan yüklenir.
+    if (file.type === 'image/gif' || file.type === 'image/svg+xml') {
+      upload(file);
+      return;
+    }
+    setCropFile(file);
   };
 
   return (
@@ -97,6 +118,17 @@ export default function PhotoUploadField({
         />
       </div>
       {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
+      {cropFile && (
+        <ImageCropModal
+          file={cropFile}
+          initialAspect={aspect}
+          round={round}
+          accentClass={accentClass}
+          onCancel={() => setCropFile(null)}
+          onDone={(cropped) => upload(cropped)}
+          onSkip={() => upload(cropFile)}
+        />
+      )}
     </div>
   );
 }

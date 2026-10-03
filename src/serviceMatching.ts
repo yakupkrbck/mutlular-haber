@@ -162,3 +162,36 @@ export function timeAgoTr(ms: number): string {
   const day = Math.floor(hr / 24);
   return `${day} gün önce`;
 }
+
+const AYLAR_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+function tarihYaz(d: Date): string {
+  return `${d.getDate()} ${AYLAR_TR[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Kayıt anının gerçek tarihi ('3 Ekim 2026'). 'Az önce' gibi sabit bir yazı saklanmaz; çünkü o yazı zamanla yanlış olur. */
+export function tarihStrNow(): string {
+  return tarihYaz(new Date());
+}
+
+/**
+ * Haber/ilan gibi içeriklerin zaman etiketi. Önce kayıt zamanından (createdAt) hesaplar:
+ * 'Az önce', '5 dk önce', '3 saat önce', '2 gün önce', 1 haftadan eskiyse tarih.
+ * createdAt yoksa kayıtlı tarihStr kullanılır; eski kayıtlardaki sabit 'Az önce' yazısı gösterilmez.
+ */
+export function tarihEtiketi(item?: { createdAt?: any; tarihStr?: string } | null): string {
+  if (!item) return '';
+  const ms = toMillis(item.createdAt);
+  if (ms > 0) {
+    const min = Math.floor(Math.max(0, Date.now() - ms) / 60000);
+    if (min < 1) return 'Az önce';
+    if (min < 60) return `${min} dk önce`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr} saat önce`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day} gün önce`;
+    return tarihYaz(new Date(ms));
+  }
+  const s = (item.tarihStr || '').trim();
+  return /^(az önce|şimdi)$/i.test(s) ? '' : s;
+}

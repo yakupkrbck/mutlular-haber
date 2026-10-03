@@ -1,3 +1,4 @@
+import { tarihEtiketi } from './serviceMatching';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Bell,
@@ -855,7 +856,7 @@ export function MutlularNewsSection({
                 <span>•</span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  {featuredNews.tarihStr || 'Yeni'}
+                  {tarihEtiketi(featuredNews) || 'Yeni'}
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-1">
@@ -919,7 +920,7 @@ export function MutlularNewsSection({
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold">
                     <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {item.tarihStr || 'Bugün'}
+                      <Clock className="w-3 h-3" /> {tarihEtiketi(item) || 'Bugün'}
                     </span>
                     <span>•</span>
                     <span className="flex items-center gap-1">

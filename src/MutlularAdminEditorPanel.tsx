@@ -1,3 +1,4 @@
+import { tarihEtiketi } from './serviceMatching';
 import { type LiveConfig, EMPTY_LIVE, toEmbedUrl } from './liveStream';
 import { AdminDataManager } from './AdminDataManager';
 import React, { useState, useEffect } from 'react';
@@ -552,10 +553,10 @@ export function MutlularAdminEditorPanel({
                               <strong className="text-slate-900">{tip.authorName || 'Mahalle Sakini'}</strong>
                               <span className="text-slate-400 ml-2">({tip.authorRole || 'Sakin'})</span>
                             </div>
-                            {tip.tarihStr && (
+                            {tarihEtiketi(tip) && (
                               <span className="text-slate-400 text-[11px] flex items-center gap-1">
                                 <Clock className="w-3 h-3" />
-                                {tip.tarihStr}
+                                {tarihEtiketi(tip)}
                               </span>
                             )}
                           </div>
