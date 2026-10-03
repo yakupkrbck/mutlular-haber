@@ -264,7 +264,8 @@ export interface ServiceOffer {
   requestId: string;
   esnafUid: string;
   esnafIsyeri: string;
-  esnafTelefon: string;
+  // ESKİ kayıtlarda bulunur; yeni tekliflerde telefon offers/{id}/private/iletisim altındadır (FAZ 5A).
+  esnafTelefon?: string;
   fiyat: number;
   mesaj: string;
   tahminiSure?: string;
