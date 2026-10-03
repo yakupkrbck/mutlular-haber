@@ -1,5 +1,5 @@
 // Pencere: NewsDetailView (eski App.tsx 8773–8969)
-import { timeAgoTr } from '../serviceMatching';
+import { timeAgoTr, tarihEtiketi } from '../serviceMatching';
 import { ChevronLeft, Bookmark, Share2, CheckCircle2, Eye, ThumbsUp, MessageSquare, ArrowRight } from 'lucide-react';
 import { useApp } from '../app/AppContext';
 
@@ -83,7 +83,7 @@ export function NewsDetailView() {
                     <span>{selectedNews.authorName || 'Mutlular Haber'}</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500 text-white" />
                   </div>
-                  {selectedNews.tarihStr && <div className="text-[11px] text-slate-400">{selectedNews.tarihStr}</div>}
+                  {tarihEtiketi(selectedNews) && <div className="text-[11px] text-slate-400">{tarihEtiketi(selectedNews)}</div>}
                 </div>
               </div>
 

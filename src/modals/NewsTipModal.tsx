@@ -1,4 +1,5 @@
 // Pencere: NewsTipModal (eski App.tsx 8972–9099)
+import { tarihStrNow } from '../serviceMatching';
 import { addDoc, collection, db, serverTimestamp } from '../firebase';
 import { type SampleNewsItem } from '../mockNeighborhoodData';
 import { X } from 'lucide-react';
@@ -60,7 +61,7 @@ export function NewsTipModal() {
                   imageURL: fotoInput || "",
                   okunmaSayisi: 1,
                   begeniSayisi: 0,
-                  tarihStr: 'Az önce'
+                  tarihStr: tarihStrNow()
                 };
 
                 setNewsItems([newNewsItem, ...newsItems]);
