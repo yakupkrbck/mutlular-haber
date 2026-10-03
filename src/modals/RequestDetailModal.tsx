@@ -4,7 +4,7 @@ import { useApp } from '../app/AppContext';
 
 export function RequestDetailModal() {
   const {
-    user, profile, demoRole, offersMap, acceptingOfferId, showRequestDetail, setShowRequestDetail,
+    user, profile, demoRole, offersMap, ustaPhones, acceptingOfferId, showRequestDetail, setShowRequestDetail,
     handleOpenEditRequest, handleAcceptOffer, openWhatsApp,
   } = useApp();
   return (
@@ -126,8 +126,9 @@ export function RequestDetailModal() {
 
                             {isOwnerStrict && off.status === 'accepted' && (
                               <button
-                                onClick={() => openWhatsApp(off.esnafTelefon, `Merhaba ${off.esnafIsyeri}, "${showRequestDetail.baslik}" talebim için verdiğiniz ${off.fiyat} TL'lik teklifi kabul ettim.`)}
-                                className="bg-green-600 hover:bg-green-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm cursor-pointer"
+                                disabled={!(ustaPhones[off.id || ''] || off.esnafTelefon)}
+                                onClick={() => openWhatsApp(ustaPhones[off.id || ''] || off.esnafTelefon || '', `Merhaba ${off.esnafIsyeri}, "${showRequestDetail.baslik}" talebim için verdiğiniz ${off.fiyat} TL'lik teklifi kabul ettim.`)}
+                                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-sm cursor-pointer"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" /> Ustaya Yaz
                               </button>
