@@ -43,6 +43,13 @@ import {
 import { type MarketplaceItem } from './firebase';
 import { type SampleNewsItem } from './mockNeighborhoodData';
 
+// Fotoğrafı olmayan paylaşımlar için tarafsız yer tutucu (internetten rastgele stok fotoğraf kullanılmaz).
+const NO_PHOTO =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><rect width="800" height="600" fill="#e2e8f0"/><text x="400" y="315" font-family="sans-serif" font-size="34" font-weight="700" fill="#94a3b8" text-anchor="middle">Fotoğraf yok</text></svg>'
+  );
+
 // ══════════════════════════════════════════════════════════════════
 // 1. MUTLULAR LOGO BİLEŞENİ (HABER, ALIM SATIM, HİZMET & PANO MARKALARI)
 // ══════════════════════════════════════════════════════════════════
@@ -321,7 +328,7 @@ export function MutlularHeader({
   onLogout
 }: {
   activeTab: string;
-  onNavigate: (tab: 'home' | 'market' | 'services' | 'davet' | 'profile') => void;
+  onNavigate: (tab: 'home' | 'news' | 'market' | 'services' | 'davet' | 'profile') => void;
   onOpenSearch: () => void;
   onOpenShare: () => void;
   onOpenLiveTv?: () => void;
@@ -369,8 +376,20 @@ export function MutlularHeader({
             <button
               onClick={() => onNavigate('home')}
               className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'home' || activeTab === 'news'
+                activeTab === 'home'
                   ? 'bg-orange-50 text-orange-600 font-black shadow-2xs'
+                  : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+              }`}
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>Ana Sayfa</span>
+            </button>
+
+            <button
+              onClick={() => onNavigate('news')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'news'
+                  ? 'bg-red-50 text-red-600 font-black shadow-2xs'
                   : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
               }`}
             >
@@ -418,7 +437,7 @@ export function MutlularHeader({
 
         {/* ── ORTADA: HER ALANIN KENDİ MARKASI (MUTLULAR HABER / MUTLULAR ALIM SATIM / MUTLULAR HİZMET) ── */}
         <div 
-          onClick={() => onNavigate(activeTab as any)}
+          onClick={() => onNavigate('home')}
           className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center cursor-pointer transition-transform active:scale-98"
           title={
             isMarket
@@ -458,7 +477,7 @@ export function MutlularHeader({
             }
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>{isMarket ? 'İlan Ver' : isServices ? 'Usta Ekle' : isDavet ? 'Duyuru Paylaş' : 'Haber Bildir'}</span>
+            <span>{isMarket ? 'İlan Ver' : isServices ? 'Usta Ekle' : isDavet ? 'Duyuru Paylaş' : activeTab === 'home' ? 'Paylaş' : 'Haber Bildir'}</span>
           </button>
 
           {/* Bildirimler */}
@@ -829,7 +848,7 @@ export function MutlularNewsSection({
           {/* Büyük Haber Görseli */}
           <div className="relative lg:w-3/5 aspect-[16/10] sm:aspect-[16/9] lg:aspect-auto min-h-[220px] sm:min-h-[280px] overflow-hidden bg-slate-900">
             <img
-              src={featuredNews.imageURL || 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=1200&q=80'}
+              src={featuredNews.imageURL || NO_PHOTO}
               alt={featuredNews.baslik}
               className="w-full h-full object-cover group-hover:scale-104 transition-transform duration-700"
             />
@@ -906,7 +925,7 @@ export function MutlularNewsSection({
               {/* Haber Kartı Görseli */}
               <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
                 <img
-                  src={item.imageURL || 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=800&q=80'}
+                  src={item.imageURL || NO_PHOTO}
                   alt={item.baslik}
                   className="w-full h-full object-cover group-hover:scale-104 transition-transform duration-500"
                 />
@@ -1018,7 +1037,7 @@ export function MutlularEmlakSection({
           >
             <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
               <img
-                src={item.fotolar?.[0] || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80'}
+                src={item.fotolar?.[0] || NO_PHOTO}
                 alt={item.baslik}
                 className="w-full h-full object-cover group-hover:scale-104 transition-transform duration-500"
               />
@@ -1121,7 +1140,7 @@ export function MutlularIkinciElSection({
           >
             <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
               <img
-                src={item.fotolar?.[0] || 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=600&q=80'}
+                src={item.fotolar?.[0] || NO_PHOTO}
                 alt={item.baslik}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
               />
@@ -1667,13 +1686,14 @@ export function MutlularMobileNav({
   onOpenShare
 }: {
   activeTab: string;
-  onNavigate: (tab: 'home' | 'market' | 'services' | 'davet' | 'profile') => void;
+  onNavigate: (tab: 'home' | 'news' | 'market' | 'services' | 'davet' | 'profile') => void;
   onOpenShare: () => void;
 }) {
   const isMarket = activeTab === 'market';
   const isServices = activeTab === 'services';
   const isDavet = activeTab === 'davet';
-  const isHome = activeTab === 'home' || activeTab === 'news';
+  const isHome = activeTab === 'home';
+  const isNews = activeTab === 'news';
 
   const centerButtonGrad = isMarket
     ? 'from-emerald-600 via-teal-500 to-emerald-500 shadow-emerald-500/35'
@@ -1685,12 +1705,25 @@ export function MutlularMobileNav({
 
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-2xl px-2 py-1.5 flex items-center justify-around">
-      {/* 1: Haber */}
+      {/* 1: Ana Sayfa (ilanlar, pano, 2. el, esnaf kampanyaları) */}
       <button
         onClick={() => onNavigate('home')}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition-all cursor-pointer ${
+        className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
           isHome
             ? 'text-orange-600 font-black'
+            : 'text-slate-500 hover:text-slate-900 font-bold'
+        }`}
+      >
+        <Home className="w-5 h-5 stroke-[2.2]" />
+        <span className="text-[10px]">Ana Sayfa</span>
+      </button>
+
+      {/* 2: Haber (tüm haberler) */}
+      <button
+        onClick={() => onNavigate('news')}
+        className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
+          isNews
+            ? 'text-red-600 font-black'
             : 'text-slate-500 hover:text-slate-900 font-bold'
         }`}
       >
@@ -1701,7 +1734,7 @@ export function MutlularMobileNav({
       {/* 2: Alım Satım */}
       <button
         onClick={() => onNavigate('market')}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition-all cursor-pointer ${
+        className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
           isMarket
             ? 'text-emerald-600 font-black'
             : 'text-slate-500 hover:text-slate-900 font-bold'
@@ -1714,7 +1747,7 @@ export function MutlularMobileNav({
       {/* 3: ＋ PAYLAŞ (Öne çıkan büyük yuvarlak buton) */}
       <button
         onClick={onOpenShare}
-        className={`-mt-5 w-13 h-13 rounded-full bg-gradient-to-tr ${centerButtonGrad} text-white flex items-center justify-center shadow-lg border-3 border-white hover:scale-105 active:scale-95 transition-all cursor-pointer`}
+        className={`-mt-5 shrink-0 w-13 h-13 rounded-full bg-gradient-to-tr ${centerButtonGrad} text-white flex items-center justify-center shadow-lg border-3 border-white hover:scale-105 active:scale-95 transition-all cursor-pointer`}
         title="Paylaşım Yap"
       >
         <Plus className="w-7 h-7 stroke-[3]" />
@@ -1723,7 +1756,7 @@ export function MutlularMobileNav({
       {/* 4: Hizmet */}
       <button
         onClick={() => onNavigate('services')}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition-all cursor-pointer ${
+        className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
           isServices
             ? 'text-blue-600 font-black'
             : 'text-slate-500 hover:text-slate-900 font-bold'
@@ -1736,7 +1769,7 @@ export function MutlularMobileNav({
       {/* 5: Mahalle Panosu / Daha */}
       <button
         onClick={() => onNavigate('davet')}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition-all cursor-pointer ${
+        className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1 px-0.5 rounded-xl transition-all cursor-pointer ${
           isDavet
             ? 'text-purple-600 font-black'
             : 'text-slate-500 hover:text-slate-900 font-bold'
@@ -1755,7 +1788,7 @@ export function MutlularMobileNav({
 export function MutlularFooter({
   onNavigate
 }: {
-  onNavigate: (tab: 'home' | 'market' | 'services' | 'davet' | 'profile') => void;
+  onNavigate: (tab: 'home' | 'news' | 'market' | 'services' | 'davet' | 'profile') => void;
 }) {
   return (
     <footer className="mt-12 bg-slate-950 text-slate-300 border-t border-slate-800 text-xs py-10 px-4">
@@ -1778,6 +1811,13 @@ export function MutlularFooter({
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => onNavigate('home')}
+              className="text-xs text-slate-300 hover:text-white font-bold cursor-pointer"
+            >
+              Ana Sayfa
+            </button>
+            <span className="text-slate-700">•</span>
+            <button
+              onClick={() => onNavigate('news')}
               className="text-xs text-slate-300 hover:text-white font-bold cursor-pointer"
             >
               Haber
@@ -1843,7 +1883,7 @@ export function MutlularSearchModal({
   onSelectNews: (item: SampleNewsItem) => void;
   onSelectMarketplace: (item: MarketplaceItem) => void;
   onSelectMaster: (master: NeighborhoodMaster) => void;
-  onNavigateTab: (tab: 'home' | 'market' | 'services' | 'davet') => void;
+  onNavigateTab: (tab: 'home' | 'news' | 'market' | 'services' | 'davet') => void;
 }) {
   const [activeSearchFilter, setActiveSearchFilter] = useState<'all' | 'haber' | 'emlak' | 'ikinci_el' | 'usta'>('all');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1978,7 +2018,7 @@ export function MutlularSearchModal({
                   <div className="flex items-center justify-between text-xs font-black text-slate-400 uppercase tracking-wider">
                     <span>📰 Haberler ({filteredNews.length})</span>
                     <button
-                      onClick={() => onNavigateTab('home')}
+                      onClick={() => onNavigateTab('news')}
                       className="text-orange-600 hover:underline normal-case font-bold"
                     >
                       Tüm Haberler →
@@ -1992,7 +2032,7 @@ export function MutlularSearchModal({
                         className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-50 hover:bg-orange-50/60 border border-slate-100 hover:border-orange-200 transition-all cursor-pointer group"
                       >
                         <img
-                          src={item.imageURL || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=400&q=80'}
+                          src={item.imageURL || NO_PHOTO}
                           alt={item.baslik}
                           className="w-14 h-14 rounded-xl object-cover shrink-0"
                         />
@@ -2033,7 +2073,7 @@ export function MutlularSearchModal({
                         className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-50 hover:bg-blue-50/60 border border-slate-100 hover:border-blue-200 transition-all cursor-pointer group"
                       >
                         <img
-                          src={item.fotolar?.[0] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=400&q=80'}
+                          src={item.fotolar?.[0] || NO_PHOTO}
                           alt={item.baslik}
                           className="w-14 h-14 rounded-xl object-cover shrink-0"
                         />
@@ -2074,7 +2114,7 @@ export function MutlularSearchModal({
                         className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-50 hover:bg-amber-50/60 border border-slate-100 hover:border-amber-200 transition-all cursor-pointer group"
                       >
                         <img
-                          src={item.fotolar?.[0] || 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=400&q=80'}
+                          src={item.fotolar?.[0] || NO_PHOTO}
                           alt={item.baslik}
                           className="w-14 h-14 rounded-xl object-cover shrink-0"
                         />
