@@ -1,6 +1,7 @@
 // Ana sayfa: Bugünün nöbetçi eczaneleri (gerçek veri).
-// Veri kaynağı: public/data/nobetci-eczane.json. Bu dosyayı GitHub Actions her gün Eczaneler.ORG API'sinden üretir
-// (scripts/fetch-nobetci-eczane.mjs). Dosya yoksa/geçersizse uydurma veri GÖSTERİLMEZ; "alınamadı" kartı çıkar.
+// Veri kaynağı: public/data/nobetci-eczane.json. Bu dosyayı GitHub Actions her gün Bursa Eczacı Odası'nın resmi
+// nöbetçi eczane sayfasından üretir (scripts/fetch-nobetci-eczane.mjs).
+// Dosya yoksa/geçersizse uydurma veri GÖSTERİLMEZ; resmi sayfaya yönlendiren "alınamadı" kartı çıkar.
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, LocateFixed, MapPin, Navigation, Phone, Pill } from 'lucide-react';
 import { NEIGHBORHOOD_KEYWORDS, PHARMACY_DISTRICT_LABEL } from './siteConfig';
@@ -8,6 +9,7 @@ import { NEIGHBORHOOD_KEYWORDS, PHARMACY_DISTRICT_LABEL } from './siteConfig';
 export interface DutyPharmacy {
   name: string;
   phone: string;
+  phone2: string;
   locality: string;
   address: string;
   addressDescription: string;
@@ -19,6 +21,8 @@ export interface DutyPharmacy {
 }
 
 interface DutyData {
+  source: string;
+  sourceUrl: string;
   fetchedAt: string;
   sentryDate: string;
   items: DutyPharmacy[];
@@ -28,7 +32,7 @@ interface Row { p: DutyPharmacy; near: boolean; km: number | null }
 
 type DutyState = { status: 'loading' } | { status: 'unavailable' } | { status: 'ready'; data: DutyData };
 
-const FALLBACK_SOURCE_URL = 'https://eczaneler.org/bursa-nobetci-eczaneleri';
+const FALLBACK_SOURCE_URL = 'https://www.beo.org.tr/nobetci-eczaneler';
 
 // ───────── yardımcılar ─────────
 const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
@@ -41,6 +45,7 @@ function parseDutyFile(json: any): DutyData | null {
     .map((p: any) => ({
       name: s(p.name),
       phone: s(p.phone),
+      phone2: s(p.phone2),
       locality: s(p.locality),
       address: s(p.address),
       addressDescription: s(p.addressDescription),
@@ -51,7 +56,8 @@ function parseDutyFile(json: any): DutyData | null {
       note: s(p.note),
     }));
   if (items.length === 0) return null;
-  return { fetchedAt: s(json.fetchedAt), sentryDate: s(json.sentryDate), items };
+  const sourceUrl = /^https:\/\//i.test(s(json.sourceUrl)) ? s(json.sourceUrl) : FALLBACK_SOURCE_URL;
+  return { source: s(json.source) || 'Bursa Eczacı Odası', sourceUrl, fetchedAt: s(json.fetchedAt), sentryDate: s(json.sentryDate), items };
 }
 
 export function useNobetciEczane(): DutyState {
@@ -138,7 +144,9 @@ export function HomeNobetciEczane() {
     if (pos) {
       return withMeta.sort((a, b) => (a.km ?? 1e9) - (b.km ?? 1e9));
     }
-    return withMeta.sort((a, b) => Number(b.near) - Number(a.near));
+    // Konum yoksa: önce mahalledekiler, sonra Osmangazi, sonra diğer ilçeler (aynı grupta kaynak sırası korunur)
+    const rank = (r: Row) => (r.near ? 0 : r.p.locality.toLocaleLowerCase('tr-TR').startsWith('osmangazi') ? 1 : 2);
+    return withMeta.sort((a, b) => rank(a) - rank(b));
   }, [items, pos]);
 
   const locate = () => {
@@ -174,7 +182,7 @@ export function HomeNobetciEczane() {
           </div>
           <div>
             <h2 className="text-sm font-black text-slate-900">Nöbetçi eczane listesi şu an alınamadı</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Güncel liste için aşağıdaki kaynağa bakabilirsiniz. Acil durumda 112'yi arayın.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Güncel liste için Bursa Eczacı Odası'nın resmi sayfasına bakabilirsiniz. Acil durumda 112'yi arayın.</p>
           </div>
         </div>
         <a
@@ -217,7 +225,10 @@ export function HomeNobetciEczane() {
             </div>
             <p className="text-xs text-red-100 mt-0.5">
               {PHARMACY_DISTRICT_LABEL}
-              {dateLabel ? ` · ${dateLabel} nöbeti` : ''} · Kaynak: Eczaneler.ORG
+              {dateLabel ? ` · ${dateLabel} nöbeti` : ''} · Kaynak:{' '}
+              <a href={data.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-white">
+                {data.source}
+              </a>
             </p>
           </div>
         </div>
@@ -244,7 +255,10 @@ export function HomeNobetciEczane() {
         {visible.map(({ p, near, km }, i) => (
           <li key={`${p.name}-${i}`} className="bg-white/10 backdrop-blur-md rounded-2xl p-3.5 border border-white/20 flex flex-col gap-2">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="font-black text-sm leading-tight">{p.name}</h3>
+              <div className="min-w-0">
+                <h3 className="font-black text-sm leading-tight">{p.name}</h3>
+                {p.locality && <div className="text-[10px] font-bold text-red-100/90 mt-0.5">{p.locality}</div>}
+              </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
                 {near && <span className="text-[10px] font-black bg-white text-red-700 px-1.5 py-0.5 rounded">Mahallede</span>}
                 {km !== null && <span className="text-[10px] font-black bg-amber-300 text-slate-900 px-1.5 py-0.5 rounded">{formatKm(km)}</span>}
@@ -272,6 +286,16 @@ export function HomeNobetciEczane() {
                 >
                   <Phone className="w-3.5 h-3.5" />
                   Ara {formatPhone(p.phone)}
+                </a>
+              )}
+              {p.phone2 && (
+                <a
+                  href={`tel:${p.phone2.replace(/[^\d+]/g, '')}`}
+                  className="px-2.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/30 font-bold text-[11px] flex items-center justify-center gap-1 transition-all"
+                  title="2. telefon"
+                >
+                  <Phone className="w-3 h-3" />
+                  {formatPhone(p.phone2)}
                 </a>
               )}
               <a
