@@ -27,13 +27,10 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      # Gerçek nöbetçi eczane verisi (API anahtarı yalnızca burada kullanılır, siteye gömülmez).
-      # Başarısız olursa site yine yayınlanır; ana sayfada "liste alınamadı" görünür.
-      - name: Nöbetçi eczane verisini indir
+      # Gerçek nöbetçi eczane verisi: Bursa Eczacı Odası'nın resmi sayfasından (anahtar/ücret gerekmez).
+      # Başarısız olursa site yine yayınlanır; ana sayfada resmi sayfaya yönlendiren "liste alınamadı" kartı görünür.
+      - name: Nöbetçi eczane listesini indir (Bursa Eczacı Odası)
         continue-on-error: true
-        env:
-          ECZANE_API_BASE: ${{ secrets.ECZANE_API_BASE }}
-          ECZANE_API_KEY: ${{ secrets.ECZANE_API_KEY }}
         run: node scripts/fetch-nobetci-eczane.mjs
       - run: npm run build
       - run: cp dist/index.html dist/404.html
