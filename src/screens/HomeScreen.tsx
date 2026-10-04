@@ -1,111 +1,155 @@
-// Ekran: HomeScreen (eski App.tsx 4965–5052)
+// Ekran: HomeScreen — mutlularhaber.com ana sayfası.
+// Sıra: hero (karşılama + arama + Canlı Mahalle Meclisi) → Burulaş şeridi → Mahalle Tanıtım Ekranı →
+//       nöbetçi eczaneler → Mahalle Kürsüsü & Oylamalar → haber şeridi (dokununca /haber) → emlak → pano →
+//       2. el → esnaf kampanyaları → topluluk çağrısı → alt bilgi.
+// Hiçbir bölümde örnek/sahte veri yok; hepsi uygulamanın gerçek verisinden veya gerçek API'den beslenir.
 import {
-  MutlularAutoVitrin,
-  MutlularNewsSection,
   MutlularEmlakSection,
   MutlularIkinciElSection,
-  MutlularUstalarSection,
   MutlularPanoSection,
   MutlularFooter
 } from '../MutlularPlatformComponents';
+import { HomeNewsBand, HomeCampaignsSection } from '../HomeSections';
+import { HomeHero, HomeKursuSection } from '../HomeHero';
+import { HomeUlasimStrip } from '../HomeUlasim';
+import { HomeShowcase } from '../HomeShowcase';
+import { HomeNobetciEczane } from '../NobetciEczane';
+import { HomeCommunityCTA } from '../HomeCommunityCTA';
 import { useApp } from '../app/AppContext';
 
 export function HomeScreen() {
   const {
-    setShowAdminPanelModal, setSelectedMockupListing, setSelectedMockupMaster, activeTab,
-    setActiveTab, setShowVefatModal, homeNewsCategoryFilter, setHomeNewsCategoryFilter,
+    setSelectedMockupListing, activeTab, setActiveTab, setShowVefatModal,
     setMarketCategoryFilter, marketplaceItems, lostFoundItems, invitationItems, deceasedList,
-    handleOpenNewsDetail, isUserAdmin, isUserEditor, pendingTipsCount, homeFilteredNews,
-    vitrinSlideItems, neighborhoodMastersList, handleSelectVitrinItem,
+    handleOpenNewsDetail, newsItems, campaigns, setShowNewsModal, setShowMarketModal,
+    profile, user, polls, isPollOpen, myVotes, handleVotePoll,
+    setSearchQuery, setShowSearchModal,
+    setKursuBaslik, setKursuIcerik, setKursuKonum, setKursuFoto, setKursuAutoCamera, setShowKursuModal,
   } = useApp();
+
+  const goTo = (tab: 'news' | 'pazar' | 'market' | 'davet' | 'lostfound' | 'meclis') => {
+    setActiveTab(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Satılmış / kaldırılmış ilanlar ana sayfada gösterilmez (liste Firestore'dan tüm ilanları getirir).
+  const activeListings = marketplaceItems.filter((m) => !m.status || m.status === 'active');
+
+  // Kürsü konusu aç (isteğe bağlı: pencere açılır açılmaz kamerayı başlat)
+  const openKursu = (withCamera: boolean) => {
+    setKursuBaslik('');
+    setKursuIcerik('');
+    setKursuKonum('');
+    setKursuFoto('');
+    setKursuAutoCamera(withCamera);
+    setShowKursuModal(true);
+  };
+
   return (
     <>
       {activeTab === 'home' && (
-        <div className="space-y-8 animate-in fade-in duration-200">
-          {/* 1. HAREKETLİ VİTRİN (Haber → Emlak → 2. El → Ustalar / 1 saniyede otomatik kayan) */}
-          <MutlularAutoVitrin
-            items={vitrinSlideItems}
-            onSelectItem={handleSelectVitrinItem}
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* 1. HERO: karşılama, hava durumu, arama, Canlı Mahalle Meclisi */}
+          <HomeHero
+            userName={profile?.name || user?.displayName || ''}
+            polls={polls}
+            isPollOpen={isPollOpen}
+            onSearch={(q) => {
+              setSearchQuery(q);
+              setShowSearchModal(true);
+            }}
+            onOpenMeclis={() => goTo('meclis')}
+            onOpenKursu={() => openKursu(false)}
           />
 
-          {/* 2. & 3. 📰 SON HABERLER (Büyük Öne Çıkan Haber + Diğer Haberler Grid) */}
-          <MutlularNewsSection
-            news={homeFilteredNews}
+          {/* 2. BURULAŞ: resmi canlı otobüs takibine bağlantı (uydurma varış süresi yok) */}
+          <HomeUlasimStrip />
+
+          {/* 3. MAHALLE TANITIM EKRANI: haber, emlak, 2. el, ilan ve panodan en son gerçek paylaşımlar */}
+          <HomeShowcase
+            newsItems={newsItems}
+            marketplaceItems={activeListings}
+            invitationItems={invitationItems}
+            deceasedItems={deceasedList}
+            lostFoundItems={lostFoundItems}
             onOpenNews={handleOpenNewsDetail}
-            selectedCategory={homeNewsCategoryFilter}
-            onSelectCategory={(cat) => setHomeNewsCategoryFilter(cat)}
-            isAdmin={isUserAdmin}
-            isEditor={isUserEditor}
-            pendingTipsCount={pendingTipsCount}
-            onOpenAdminPanel={() => setShowAdminPanelModal(true)}
-          />
-
-          {/* 4. 🏠 EMLAK İLANLARI (Satılık & Kiralık) */}
-          <MutlularEmlakSection
-            items={marketplaceItems}
             onOpenListing={(item) => setSelectedMockupListing(item)}
-            onViewAll={() => {
-              setActiveTab('market');
-              setMarketCategoryFilter('emlak');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
+            onOpenDavet={() => goTo('davet')}
+            onOpenDeceased={() => setShowVefatModal(true)}
+            onOpenLostFound={() => goTo('lostfound')}
           />
 
-          {/* 5. 🚗 2. EL ALIM-SATIM İLANLARI */}
-          <MutlularIkinciElSection
-            items={marketplaceItems}
-            onOpenListing={(item) => setSelectedMockupListing(item)}
-            onViewAll={() => {
-              setActiveTab('market');
-              setMarketCategoryFilter('ikinci_el');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
+          {/* 4. BUGÜNÜN NÖBETÇİ ECZANELERİ (gerçek veri: GitHub Actions ile her gün indirilir) */}
+          <HomeNobetciEczane />
+
+          {/* 5. MAHALLE KÜRSÜSÜ & OYLAMALAR */}
+          <HomeKursuSection
+            polls={polls}
+            isPollOpen={isPollOpen}
+            myVotes={myVotes}
+            onVote={handleVotePoll}
+            onOpenMeclis={() => goTo('meclis')}
+            onOpenKursuCamera={() => openKursu(true)}
+            onOpenKursu={() => openKursu(false)}
           />
 
-          {/* 6. 🔧 MAHALLE USTALARI & HİZMETLER */}
-          <MutlularUstalarSection
-            masters={neighborhoodMastersList}
-            onOpenMaster={(m) => {
-              setSelectedMockupMaster({
-                id: m.id,
-                name: m.name,
-                phone: m.phone,
-                rating: m.rating,
-                reviewCount: m.reviewCount,
-                address: m.neighborhood,
-                avatar: m.avatar,
-                subCategories: [m.profession]
-              });
-            }}
-            onCall={(phone, e) => {
-              e.stopPropagation();
-              window.location.href = `tel:${phone}`;
-            }}
-          />
+          <div className="space-y-8 pt-2">
+            {/* 6. HABER ŞERİDİ: dokununca tüm haberler (/haber) */}
+            <HomeNewsBand
+              news={newsItems}
+              onOpenAll={() => goTo('news')}
+              onOpenNews={handleOpenNewsDetail}
+            />
 
-          {/* 7. 📌 MAHALLE PANOSU */}
-          <MutlularPanoSection
-            deceased={deceasedList}
-            lostFound={lostFoundItems}
-            invitations={invitationItems}
-            onOpenItem={(t) => {
-              if (t === 'davet') setActiveTab('davet');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onOpenDeceasedModal={() => setShowVefatModal(true)}
-            onOpenLostFoundModal={() => {
-              setActiveTab('lostfound');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-          />
+            {/* 7. İLANLAR: emlak (satılık & kiralık) */}
+            <MutlularEmlakSection
+              items={activeListings}
+              onOpenListing={(item) => setSelectedMockupListing(item)}
+              onViewAll={() => {
+                setMarketCategoryFilter('emlak');
+                goTo('market');
+              }}
+            />
 
-          {/* 8. FOOTER */}
-          <MutlularFooter
-            onNavigate={(tab) => {
-              setActiveTab(tab);
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-          />
+            {/* 8. MAHALLE PANOSU */}
+            <MutlularPanoSection
+              deceased={deceasedList}
+              lostFound={lostFoundItems}
+              invitations={invitationItems}
+              onOpenItem={(t) => {
+                if (t === 'davet') goTo('davet');
+              }}
+              onOpenDeceasedModal={() => setShowVefatModal(true)}
+              onOpenLostFoundModal={() => goTo('lostfound')}
+            />
+
+            {/* 9. 2. EL ALIM-SATIM */}
+            <MutlularIkinciElSection
+              items={activeListings}
+              onOpenListing={(item) => setSelectedMockupListing(item)}
+              onViewAll={() => {
+                setMarketCategoryFilter('ikinci_el');
+                goTo('market');
+              }}
+            />
+
+            {/* 10. ESNAF KAMPANYALARI */}
+            <HomeCampaignsSection campaigns={campaigns} onOpenAll={() => goTo('pazar')} />
+
+            {/* 11. TOPLULUK ÇAĞRISI: gerçek haber/ihbar ve ilan verme akışlarını açar */}
+            <HomeCommunityCTA
+              onOpenTipModal={() => setShowNewsModal(true)}
+              onOpenNewListing={() => setShowMarketModal(true)}
+            />
+
+            {/* 12. ALT BİLGİ */}
+            <MutlularFooter
+              onNavigate={(tab) => {
+                setActiveTab(tab);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          </div>
         </div>
       )}
     </>
