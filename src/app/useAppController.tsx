@@ -365,6 +365,8 @@ export function useAppController() {
   const [kursuIcerik, setKursuIcerik] = useState('');
   const [kursuKonum, setKursuKonum] = useState('');
   const [kursuFoto, setKursuFoto] = useState('');
+  // Ana sayfadaki 'Fotoğraf Çek & Konu Aç' düğmesi: Kürsü penceresi açılır açılmaz kamerayı başlatır.
+  const [kursuAutoCamera, setKursuAutoCamera] = useState(false);
 
   // Modals & Panels
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -3935,7 +3937,7 @@ export function useAppController() {
     setNewServiceReqAddress, newServiceReqPhone, setNewServiceReqPhone, newServiceReqUrgent,
     setNewServiceReqUrgent, newServiceReqPhoto, setNewServiceReqPhoto, handleOpenCategoryRequest,
     showKursuModal, setShowKursuModal, kursuBaslik, setKursuBaslik, kursuKategori, setKursuKategori,
-    kursuIcerik, setKursuIcerik, kursuKonum, setKursuKonum, kursuFoto, setKursuFoto, showAuthModal,
+    kursuIcerik, setKursuIcerik, kursuKonum, setKursuKonum, kursuFoto, setKursuFoto, kursuAutoCamera, setKursuAutoCamera, showAuthModal,
     setShowAuthModal, authMode, setAuthMode, showServiceModal, setShowServiceModal, showMarketModal,
     setShowMarketModal, showLostFoundModal, setShowLostFoundModal, showCampaignModal,
     setShowCampaignModal, showNewsModal, setShowNewsModal, selectedNews, showOfferModal,

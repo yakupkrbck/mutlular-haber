@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
-import { Camera, Loader2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Camera, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { uploadToCloudinary } from './cloudinary';
 import ImageCropModal from './ImageCropModal';
+import CameraCaptureModal from './CameraCaptureModal';
 
 interface PhotoUploadFieldProps {
   /** Kontrollü kullanım: mevcut fotoğraf adresi */
@@ -22,6 +23,10 @@ interface PhotoUploadFieldProps {
   accentClass?: string;
   /** Kırpma penceresinin başlangıç oranı (genişlik / yükseklik). Varsayılan 4:3; yuvarlak alanda kare. */
   aspect?: number;
+  /** Açılır açılmaz kamerayı başlat (ana sayfadaki 'Fotoğraf Çek & Konu Aç' için). */
+  autoCamera?: boolean;
+  /** autoCamera tetiklendikten sonra çağrılır (üst bileşen bayrağı sıfırlar). */
+  onAutoCameraHandled?: () => void;
 }
 
 export default function PhotoUploadField({
@@ -34,6 +39,8 @@ export default function PhotoUploadField({
   round = false,
   accentClass = 'bg-slate-900 hover:bg-slate-800 text-white',
   aspect = 4 / 3,
+  autoCamera = false,
+  onAutoCameraHandled,
 }: PhotoUploadFieldProps) {
   const isControlled = value !== undefined;
   const [inner, setInner] = useState(defaultValue);
@@ -41,6 +48,8 @@ export default function PhotoUploadField({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const captureInputRef = useRef<HTMLInputElement>(null);
+  const [showCamera, setShowCamera] = useState(false);
   // Seçilen fotoğraf önce yakınlaştırma/kırpma penceresinde açılır; yükleme onaydan sonra başlar.
   const [cropFile, setCropFile] = useState<File | null>(null);
 
@@ -65,6 +74,7 @@ export default function PhotoUploadField({
 
   const handleFile = (file?: File | null) => {
     if (inputRef.current) inputRef.current.value = '';
+    if (captureInputRef.current) captureInputRef.current.value = '';
     if (!file) return;
     setError('');
     if (!file.type.startsWith('image/')) {
@@ -79,10 +89,25 @@ export default function PhotoUploadField({
     setCropFile(file);
   };
 
+  // Kamera: tarayıcı kamerasına erişilebiliyorsa kendi pencerem, erişilemezse cihazın kamera/dosya seçicisi
+  const openCamera = () => {
+    const canStream = typeof window !== 'undefined' && window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
+    if (canStream) setShowCamera(true);
+    else captureInputRef.current?.click();
+  };
+
+  useEffect(() => {
+    if (autoCamera) {
+      openCamera();
+      onAutoCameraHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="space-y-2">
       {name && <input type="hidden" name={name} value={current} />}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {current ? (
           <div className="relative shrink-0">
             <img
@@ -106,9 +131,19 @@ export default function PhotoUploadField({
           onClick={() => inputRef.current?.click()}
           className={`${accentClass} font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60`}
         >
-          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
           {uploading ? 'Yükleniyor...' : current ? 'Fotoğrafı Değiştir' : buttonLabel}
         </button>
+        {!uploading && (
+          <button
+            type="button"
+            onClick={openCamera}
+            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Camera className="w-3.5 h-3.5" />
+            Kamera
+          </button>
+        )}
         <input
           ref={inputRef}
           type="file"
@@ -116,8 +151,30 @@ export default function PhotoUploadField({
           className="hidden"
           onChange={(e) => handleFile(e.target.files?.[0])}
         />
+        <input
+          ref={captureInputRef}
+          type="file"
+          accept="image/*"
+          capture={round ? 'user' : 'environment'}
+          className="hidden"
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
       </div>
       {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
+      {showCamera && (
+        <CameraCaptureModal
+          facing={round ? 'user' : 'environment'}
+          onCancel={() => setShowCamera(false)}
+          onCapture={(file) => {
+            setShowCamera(false);
+            handleFile(file);
+          }}
+          onUnavailable={() => {
+            setShowCamera(false);
+            captureInputRef.current?.click();
+          }}
+        />
+      )}
       {cropFile && (
         <ImageCropModal
           file={cropFile}

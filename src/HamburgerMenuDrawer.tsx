@@ -186,7 +186,7 @@ export function HamburgerMenuDrawer({
               </span>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => { onClose(); onNavigateTab('home'); }}
+                  onClick={() => { onClose(); onNavigateTab('news'); }}
                   className="flex items-center gap-2.5 p-3 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 transition-all border border-red-100 text-left group cursor-pointer"
                 >
                   <div className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">

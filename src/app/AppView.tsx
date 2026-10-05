@@ -148,7 +148,7 @@ export function AppView() {
       )}
 
       {/* DİĞER SAYFALAR İÇİN TEMİZ GERİ BUTONLU HEADER */}
-      {activeTab !== 'home' && activeTab !== 'market' && activeTab !== 'services' && activeTab !== 'profile' && (
+      {activeTab !== 'home' && activeTab !== 'news' && activeTab !== 'market' && activeTab !== 'services' && activeTab !== 'profile' && (
         <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs transition-all">
           <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between">
             <button

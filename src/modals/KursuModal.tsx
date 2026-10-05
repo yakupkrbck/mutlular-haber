@@ -7,7 +7,7 @@ export function KursuModal() {
   const {
     showKursuModal, setShowKursuModal, kursuBaslik, setKursuBaslik, kursuKategori, setKursuKategori,
     kursuIcerik, setKursuIcerik, kursuKonum, setKursuKonum, kursuFoto, setKursuFoto,
-    handlePublishKursu,
+    kursuAutoCamera, setKursuAutoCamera, handlePublishKursu,
   } = useApp();
   return (
     <>
@@ -114,7 +114,7 @@ export function KursuModal() {
                 <label className="text-[11px] font-bold text-slate-700 block">
                   Fotoğraf (Opsiyonel)
                 </label>
-                <PhotoUploadField value={kursuFoto} onChange={setKursuFoto} folder="mutlular_haber/kursus" accentClass="bg-indigo-600 hover:bg-indigo-700 text-white" />
+                <PhotoUploadField value={kursuFoto} onChange={setKursuFoto} folder="mutlular_haber/kursus" accentClass="bg-indigo-600 hover:bg-indigo-700 text-white" autoCamera={kursuAutoCamera} onAutoCameraHandled={() => setKursuAutoCamera(false)} />
               </div>
 
               {/* Bilgilendirme kutucuğu */}

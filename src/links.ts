@@ -140,7 +140,7 @@ export function cleanedUrl(loc: { pathname: string; search: string; hash: string
 // Adres çubuğunda Türkçe karakter %-kodlanarak çirkin göründüğü için kanonik adresler ASCII'dir;
 // "/alımsatım" gibi Türkçe yazımlar da açılır ve kanonik adrese çevrilir.
 export const TAB_PATHS: Record<string, string> = {
-  home: 'haber',
+  home: '',
   news: 'haber',
   market: 'alimsatim',
   services: 'hizmet',
@@ -157,8 +157,8 @@ export const TAB_PATHS: Record<string, string> = {
 
 const PATH_TO_TAB: Record<string, string> = {
   '': 'home',
-  haber: 'home',
-  haberler: 'home',
+  haber: 'news',
+  haberler: 'news',
   alimsatim: 'market',
   'alim-satim': 'market',
   hizmet: 'services',
@@ -176,7 +176,7 @@ const PATH_TO_TAB: Record<string, string> = {
 
 // İçerik adresinin (örn. /ilan/baslik--id) hangi ekranda açılacağı
 const TYPE_TO_TAB: Record<string, string> = {
-  haber: 'home',
+  haber: 'news',
   cenaze: 'home',
   ilan: 'market',
   duyuru: 'davet',
@@ -205,7 +205,7 @@ export function tabFromPathname(pathname: string, base: string): string | null {
   return TYPE_TO_TAB[key] ?? PATH_TO_TAB[key] ?? null;
 }
 
-/** Ekranın kanonik adresi (path). Ana sayfa da /haber olur. */
+/** Ekranın kanonik adresi (path). Ana sayfa '/', tüm haberler '/haber'. */
 export function sectionPath(tab: string, base: string): string {
   const seg = TAB_PATHS[tab];
   return (base || '/') + (seg || '');
