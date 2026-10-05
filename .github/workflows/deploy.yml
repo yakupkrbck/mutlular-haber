@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm install --legacy-peer-deps
       # Gerçek nöbetçi eczane verisi: Bursa Eczacı Odası'nın resmi sayfasından (anahtar/ücret gerekmez).
       # Başarısız olursa site yine yayınlanır; ana sayfada resmi sayfaya yönlendiren "liste alınamadı" kartı görünür.
       - name: Nöbetçi eczane listesini indir (Bursa Eczacı Odası)
