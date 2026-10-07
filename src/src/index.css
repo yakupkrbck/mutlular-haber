@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+/*
+  Yazı tipi: Roboto (tüm site, başlıklar dahil).
+  Open Sans'a geçmek için iki satırdaki "Roboto" adını "Open Sans" yapmak ve
+  index.html içindeki Google Fonts bağlantısını değiştirmek yeterli.
+*/
+@theme {
+  --font-sans: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
