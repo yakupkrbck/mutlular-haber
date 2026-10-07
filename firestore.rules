@@ -2,6 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------- Yardımcı fonksiyonlar ----------
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -10,114 +11,510 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Yönetici: e-postası DOĞRULANMIŞ sahip hesabı veya users kaydında role == 'admin'
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == 'yakupkrbck@gmail.com' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        (request.auth.token.email == 'yakupkrbck@gmail.com' && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && userDoc().role == 'admin')
       );
     }
 
     function isEditor() {
       return isAdmin() || (
-        isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'editor'
+        isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        userDoc().role == 'editor'
       );
     }
 
-    // USERS (Kullanıcı Profilleri & Roller)
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Teklif kuralları için: talebin işlem ÖNCESİ ve SONRASI (aynı işlem/transaction içinde) hali.
+    function reqBefore(requestId) {
+      return get(/databases/$(database)/documents/service_requests/$(requestId)).data;
+    }
+    function reqAfter(requestId) {
+      return getAfter(/databases/$(database)/documents/service_requests/$(requestId)).data;
+    }
+
+    // ---------- Kullanıcılar ----------
+    // Herkesin bilgisi yalnızca kendisi ve yönetici tarafından okunur.
     match /users/{userId} {
-      allow read, create, update: if true;
-      allow delete: if true;
-    }
+      allow read: if isOwner(userId) || isAdmin();
 
-    // SERVICE REQUESTS (Usta & Hizmet Talepleri)
-    match /service_requests/{requestId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
-    }
+      // Kendi kaydını yalnızca sakin/esnaf rolüyle, en fazla 10 kredi ile ve şifre alanı olmadan açabilir.
+      allow create: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.role in ['sakin', 'esnaf'] &&
+        request.resource.data.get('credits', 0) <= 10 &&
+        !('passwordHash' in request.resource.data)
+      );
 
-    // OFFERS (Esnaf Teklifleri)
-    match /offers/{offerId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.esnafUid) || isAdmin());
-    }
+      // Kullanıcı kendi rolünü yalnızca sakin <-> esnaf arasında değiştirebilir (admin/editör rolü sabit kalır),
+      // kredisini artıramaz (yalnızca harcayabilir); tek seferlik hoş geldin kredisi (en çok 10) hariç.
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        (
+          request.resource.data.role == resource.data.role ||
+          (resource.data.role in ['sakin', 'esnaf'] && request.resource.data.role in ['sakin', 'esnaf'])
+        ) &&
+        (
+          request.resource.data.get('credits', 0) <= resource.data.get('credits', 0) ||
+          (
+            resource.data.get('welcomeBonusGiven', false) == false &&
+            request.resource.data.get('welcomeBonusGiven', false) == true &&
+            request.resource.data.get('credits', 0) <= 10
+          )
+        ) &&
+        (
+          resource.data.get('welcomeBonusGiven', false) == false ||
+          request.resource.data.get('welcomeBonusGiven', false) == true
+        )
+      );
 
-    // MARKETPLACE (Emlak & 2. El Eşya)
-    match /marketplace_items/{itemId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
-    }
-
-    // LOST & FOUND (Kayıp & Buluntu)
-    match /lost_found_items/{itemId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
-    }
-
-    // MAHALLE CEMİYETLERİ & DAVETLER (Düğün, Nişan, Sünnet vb.)
-    match /mahalle_davetleri/{davetId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
-    }
-
-    // ESNAF KAMPANYALARI & DÜKKANLAR
-    match /esnaf_kampanyalar/{kId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
-    }
-
-    // HABERLER & DUYURULAR & İHBARLAR
-    match /haberler/{haberId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if isEditor() || isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow delete: if isEditor() || isAdmin();
-    }
-
-    // MAHALLE KÜRSÜSÜ (Görüş, Sorun ve Yorumlar)
-    match /mahalle_kursusu/{kursuId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
-    }
-
-    // CENAZE & VEFAT İLANLARI (Taziye Duyuruları)
-    match /cenaze_ilanlari/{cId} {
-      allow read: if true;
-      allow create, update: if true;
       allow delete: if isAdmin();
     }
 
-    // CREDIT TRANSACTIONS
-    match /credit_transactions/{txId} {
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- Usta talepleri ve teklifler ----------
+    match /service_requests/{requestId} {
       allow read: if true;
-      allow create: if true;
+      allow create: if isAuthenticated();
+      // Sahibi veya yönetici düzenler; teklif verilince esnaf yalnızca offerCount'u artırabilir.
+      // Sahibi: uid değiştiremez; talep 'open' dışına çıktıktan sonra tekrar 'open' yapamaz ve
+      // kabul edilen teklifi (acceptedOfferId) değiştiremez (usta telefonunu kabulsüz görmeyi engeller).
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid &&
+          request.resource.data.get('uid', '') == resource.data.get('uid', '') &&
+          (
+            resource.data.get('status', 'open') == 'open' ||
+            (
+              request.resource.data.get('status', 'open') != 'open' &&
+              request.resource.data.get('acceptedOfferId', '') == resource.data.get('acceptedOfferId', '')
+            )
+          )) ||
+        (isAuthenticated() && changedKeys().hasOnly(['offerCount']));
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    // Topluluğun eklediği faaliyet alanları ("Diğer" seçen usta kendi alanını yazar).
+    // Herkes okur; giriş yapan kullanıcı, belge kimliği alan adından türetilmiş yeni bir alan ekleyebilir; değiştirilemez.
+    // Faaliyet alanları / işletme türleri: herkes okur; YALNIZCA yönetici ekler, düzenler, siler.
+    // (Kullanıcılar serbest alan yazamaz; ustalar bu standart listeden seçer.)
+    match /hizmet_alanlari/{alanId} {
+      allow read: if true;
+      allow create, update: if isAdmin() &&
+        request.resource.data.ad is string &&
+        request.resource.data.ad.size() >= 3 &&
+        request.resource.data.ad.size() <= 40;
+      allow delete: if isAdmin();
+    }
+
+    // Haber kategorileri: herkes okur; yalnızca yönetici yönetir.
+    match /news_categories/{catId} {
+      allow read: if true;
+      allow create, update: if isAdmin() &&
+        request.resource.data.ad is string &&
+        request.resource.data.ad.size() >= 3 &&
+        request.resource.data.ad.size() <= 40;
+      allow delete: if isAdmin();
+    }
+
+    // Otobüs hatları (güzergâh ve sefer saatleri): herkes okur; yalnızca yönetici yazar.
+    match /bus_lines/{lineId} {
+      allow read: if true;
+      allow create, update: if isAdmin() &&
+        request.resource.data.code is string &&
+        request.resource.data.code.size() >= 1 &&
+        request.resource.data.code.size() <= 12 &&
+        request.resource.data.saatler is map;
+      allow delete: if isAdmin();
+    }
+
+    // Ortak usta listesi (telefonsuz): herkes okur. Usta yalnızca kendi kaydını oluşturur/günceller;
+    // 'onayli' (onaylı usta rozeti) yalnızca yönetici değiştirebilir.
+    match /usta_profilleri/{ustaId} {
+      allow read: if true;
+      allow create: if isAuthenticated() &&
+        ustaId == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.onayli == false &&
+        request.resource.data.ad is string && request.resource.data.ad.size() <= 80 &&
+        request.resource.data.alanlar is list && request.resource.data.alanlar.size() <= 12;
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        ustaId == request.auth.uid &&
+        request.resource.data.onayli == resource.data.onayli &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.ad is string && request.resource.data.ad.size() <= 80 &&
+        request.resource.data.alanlar is list && request.resource.data.alanlar.size() <= 12
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && ustaId == request.auth.uid);
+    }
+
+
+    // Teklifler: yalnızca teklifi veren usta, talep sahibi ve yönetici okuyabilir.
+    // Ustanın telefonu bu belgede DEĞİL, offers/{id}/private/iletisim altında tutulur (aşağıda).
+    //
+    // Oluşturma (usta): aynı işlemde (transaction) şunların hepsi birlikte olmalı:
+    //   • teklif belgesi (yalnızca izinli alanlar, telefon alanı yok, 'pending', creditCost 1)
+    //   • ustanın kredisinin tam 1 azalması (users/{uid}.credits)
+    //   • kredi kaydı credit_transactions/ofr_{teklifId}
+    //   • telefon belgesi offers/{id}/private/iletisim
+    //   Ayrıca: kullanıcı rolü 'esnaf' (usta hesabı de böyle), talep 'open', kendi talebine teklif yok.
+    // Güncelleme (talep sahibi): yalnızca 'pending' teklif için ve yalnızca
+    //   • reddetme ('rejected'), veya
+    //   • kabul ('accepted'): talep o anda 'open' ise ve aynı işlemde talep 'in_progress' + acceptedOfferId = bu teklif olursa.
+    //   Böylece bir talepte tek teklif kabul edilebilir ve telefon ancak gerçek kabulden sonra açılır.
+    // Usta kendi teklifini silebilir.
+    match /offers/{offerId} {
+      allow read: if isAdmin() || (isAuthenticated() && (
+        resource.data.esnafUid == request.auth.uid ||
+        resource.data.get('requestOwnerUid', '') == request.auth.uid
+      ));
+      allow create: if isAuthenticated() &&
+        request.resource.data.keys().hasOnly(['requestId', 'requestOwnerUid', 'requestTitle', 'esnafUid',
+          'esnafIsyeri', 'fiyat', 'mesaj', 'tahminiSure', 'creditCost', 'status', 'createdAt']) &&
+        request.resource.data.esnafUid == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.creditCost == 1 &&
+        request.resource.data.fiyat is number && request.resource.data.fiyat > 0 &&
+        request.resource.data.mesaj is string && request.resource.data.mesaj.size() <= 2000 &&
+        request.resource.data.get('requestOwnerUid', '') == reqBefore(request.resource.data.requestId).get('uid', '') &&
+        request.resource.data.get('requestOwnerUid', '') != request.auth.uid &&
+        reqBefore(request.resource.data.requestId).get('status', 'open') == 'open' &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        userDoc().role == 'esnaf' &&
+        userDoc().get('credits', 0) >= 1 &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('credits', 0) ==
+          userDoc().get('credits', 0) - 1 &&
+        existsAfter(/databases/$(database)/documents/credit_transactions/$('ofr_' + offerId)) &&
+        existsAfter(/databases/$(database)/documents/offers/$(offerId)/private/iletisim);
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        resource.data.get('requestOwnerUid', '') == request.auth.uid &&
+        resource.data.status == 'pending' &&
+        changedKeys().hasOnly(['status', 'acceptedAt', 'musteriTelefon', 'musteriAdi']) &&
+        (
+          request.resource.data.status == 'rejected' ||
+          (
+            request.resource.data.status == 'accepted' &&
+            reqBefore(resource.data.requestId).get('status', 'open') == 'open' &&
+            reqAfter(resource.data.requestId).get('status', '') == 'in_progress' &&
+            reqAfter(resource.data.requestId).get('acceptedOfferId', '') == offerId
+          )
+        )
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.esnafUid == request.auth.uid);
+
+      // Ustanın telefonu: teklifi veren usta ve yönetici her zaman okur; talep sahibi YALNIZCA teklif kabul edildikten sonra.
+      // Yalnızca teklif oluşturulurken, yalnızca teklifi veren usta yazabilir; sonradan değiştirilemez.
+      match /private/{docId} {
+        allow read: if isAdmin() || (isAuthenticated() && (
+          get(/databases/$(database)/documents/offers/$(offerId)).data.esnafUid == request.auth.uid ||
+          (
+            get(/databases/$(database)/documents/offers/$(offerId)).data.get('requestOwnerUid', '') == request.auth.uid &&
+            get(/databases/$(database)/documents/offers/$(offerId)).data.status == 'accepted'
+          )
+        ));
+        allow create: if isAuthenticated() &&
+          docId == 'iletisim' &&
+          getAfter(/databases/$(database)/documents/offers/$(offerId)).data.esnafUid == request.auth.uid &&
+          request.resource.data.keys().hasOnly(['telefon']) &&
+          request.resource.data.telefon is string &&
+          request.resource.data.telefon.size() <= 25;
+        allow update: if false;
+        allow delete: if isAdmin() || (isAuthenticated() &&
+          get(/databases/$(database)/documents/offers/$(offerId)).data.esnafUid == request.auth.uid);
+      }
+    }
+
+    // Kredi harcama kayıtları: yalnızca teklif verme kaydı ('offer_submit', -1), kendi adına ve
+    // belge kimliği 'ofr_{teklifId}' olmak üzere, aynı işlemde o teklif de oluşuyorsa eklenebilir; değiştirilemez ve silinemez.
+    match /credit_transactions/{txId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.type == 'offer_submit' &&
+        request.resource.data.amount == -1 &&
+        txId == 'ofr_' + request.resource.data.relatedOfferId &&
+        existsAfter(/databases/$(database)/documents/offers/$(request.resource.data.relatedOfferId));
       allow update, delete: if false;
     }
 
-    // TEST / DIAGNOSTICS
-    match /test/{docId} {
-      allow read, write: if true;
+    // ---------- İlan / duyuru tarzı içerikler ----------
+    // Okuma herkese açık; ekleme giriş gerektirir; sayaç güncellemeleri (katılım, destek, yorum vb.) giriş yapan herkese açık,
+    // diğer düzenleme ve silme sahibine veya yöneticiye ait.
+    match /marketplace_items/{itemId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid) ||
+        (isAuthenticated() && changedKeys().hasOnly(['begeniSayisi', 'yorumlar']));
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
     }
 
-    // Catch-all
-    match /{document=**} {
+    match /lost_found_items/{itemId} {
       allow read: if true;
-      allow write: if isAuthenticated() || true;
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid) ||
+        (isAuthenticated() && changedKeys().hasOnly(['yorumlar']));
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    match /mahalle_davetleri/{davetId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid) ||
+        (isAuthenticated() && changedKeys().hasOnly(['katilanSayisi', 'tebrikler']));
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    match /mahalle_kursusu/{kursuId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid) ||
+        (isAuthenticated() && changedKeys().hasOnly(['destekSayisi', 'yorumlar']));
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    // Esnaf kampanyaları (onay akışlı):
+    // - Esnaf, yalnızca ONAYLI işletme sayfası varsa ve kampanyayı 'pending' durumunda bırakabilir; editör/yönetici doğrudan yayınlar.
+    // - Sahibi kendi kampanyasını durumunu değiştirmeden düzenler; editör/yönetici onaylar/reddeder.
+    match /esnaf_kampanyalar/{kId} {
+      allow read: if true;
+      allow create: if isAuthenticated() &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        (
+          (isEditor() && request.resource.data.get('status', '') == 'published') ||
+          (
+            request.resource.data.get('status', '') == 'pending' &&
+            get(/databases/$(database)/documents/businesses/$(request.auth.uid)).data.approvalStatus == 'approved'
+          )
+        );
+      allow update: if isEditor() || (
+        isAuthenticated() &&
+        resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.get('status', '') == resource.data.get('status', '') &&
+        request.resource.data.get('uid', '') == resource.data.get('uid', '')
+      );
+      allow delete: if isEditor() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    // İşletme sayfaları (FAZ 4): belge kimliği = sahibinin uid'si.
+    // - Herkes yalnızca ONAYLI sayfaları okur; sahibi kendi belgesini, editör/yönetici hepsini okur.
+    // - Yalnızca esnaf hesabı (usta değil) kendi sayfasını 'pending' olarak oluşturur.
+    // - Sahibi onay durumunu değiştiremez (reddedilmişse tekrar 'pending' yapabilir); onayı yalnızca yönetici verir.
+    match /businesses/{bId} {
+      allow read: if resource.data.approvalStatus == 'approved' ||
+        isEditor() ||
+        (isAuthenticated() && bId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        bId == request.auth.uid &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.approvalStatus == 'pending' &&
+        request.resource.data.isyeri is string &&
+        request.resource.data.isyeri.size() >= 2 &&
+        request.resource.data.isyeri.size() <= 80 &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'esnaf' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('hesapTipi', '') != 'usta';
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        bId == request.auth.uid &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        (
+          request.resource.data.approvalStatus == resource.data.approvalStatus ||
+          (resource.data.approvalStatus == 'rejected' && request.resource.data.approvalStatus == 'pending')
+        )
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && bId == request.auth.uid);
+
+      // Görüntülenme ve etkileşim kayıtları: giriş yapmış kullanıcı günde bir kez (belge kimliği uid_gün) ekler;
+      // yalnızca işletme sahibi ve yönetici okur. Sayılar sahte artırılamaz (bir kullanıcı günde en fazla bir kayıt).
+      match /views/{viewId} {
+        allow read: if isAdmin() || (isAuthenticated() && bId == request.auth.uid);
+        allow create: if isAuthenticated() &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.day is string &&
+          request.resource.data.day.size() == 10 &&
+          viewId == request.auth.uid + '_' + request.resource.data.day &&
+          bId != request.auth.uid &&
+          get(/databases/$(database)/documents/businesses/$(bId)).data.approvalStatus == 'approved';
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+
+      match /events/{evId} {
+        allow read: if isAdmin() || (isAuthenticated() && bId == request.auth.uid);
+        allow create: if isAuthenticated() &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.type in ['call', 'whatsapp', 'share', 'map'] &&
+          request.resource.data.day is string &&
+          request.resource.data.day.size() == 10 &&
+          evId == request.auth.uid + '_' + request.resource.data.type + '_' + request.resource.data.day &&
+          bId != request.auth.uid &&
+          get(/databases/$(database)/documents/businesses/$(bId)).data.approvalStatus == 'approved';
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // Vefat / taziye ilanları (onay akışlı):
+    // - Giriş yapan herkes ilanı yalnızca 'pending' (onay bekliyor) durumunda bırakabilir.
+    // - Editör/yönetici doğrudan 'published' olarak yayınlayabilir, bekleyenleri onaylar/reddeder.
+    // - Herkes yalnızca yayınlanmış ilanları okur; ilan sahibi kendi ilanlarını, editör hepsini okur.
+    // - İlanı bırakan veya editör/yönetici silebilir.
+    match /cenaze_ilanlari/{cId} {
+      allow read: if resource.data.status == 'published' ||
+        isEditor() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.fullName is string &&
+        request.resource.data.fullName.size() >= 2 &&
+        request.resource.data.fullName.size() <= 80 &&
+        (
+          request.resource.data.get('status', '') == 'pending' ||
+          (isEditor() && request.resource.data.get('status', '') == 'published')
+        );
+      allow update: if isEditor();
+      allow delete: if isEditor() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    // Yorumlar (haber vb.): herkes görünür yorumları okur; giriş yapan kendi adına yorum ekler,
+    // sahibi yalnızca metnini düzenler/siler, editör/yönetici gizler ve siler.
+    match /comments/{cId} {
+      allow read: if resource.data.status == 'visible' ||
+        isEditor() ||
+        (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.get('uid', '') == request.auth.uid &&
+        request.resource.data.status == 'visible' &&
+        request.resource.data.contentType in ['haber', 'ilan', 'duyuru', 'esnaf', 'cenaze'] &&
+        request.resource.data.contentId is string &&
+        request.resource.data.contentId.size() > 0 &&
+        request.resource.data.contentId.size() <= 128 &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() >= 1 &&
+        request.resource.data.text.size() <= 500 &&
+        request.resource.data.authorName is string &&
+        request.resource.data.authorName.size() <= 60;
+      allow update: if isEditor() || (
+        isAuthenticated() &&
+        resource.data.get('uid', '') == request.auth.uid &&
+        changedKeys().hasOnly(['text', 'editedAt']) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() >= 1 &&
+        request.resource.data.text.size() <= 500
+      );
+      allow delete: if isEditor() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    // Beğeniler: belge kimliği {tür}_{içerikId}_{uid}; bir kullanıcı bir içeriği yalnızca bir kez beğenir, kendi beğenisini geri çeker.
+    match /likes/{lId} {
+      allow read: if true;
+      allow create: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.contentType in ['haber', 'ilan', 'duyuru', 'esnaf', 'cenaze'] &&
+        request.resource.data.contentId is string &&
+        lId == request.resource.data.contentType + '_' + request.resource.data.contentId + '_' + request.auth.uid;
+      allow update: if false;
+      allow delete: if isEditor() || (isAuthenticated() && resource.data.get('uid', '') == request.auth.uid);
+    }
+
+    // Anketler: herkes okur; yalnızca editör/yönetici oluşturur, kapatır, siler.
+    // Oy: giriş yapmış kullanıcı kullanıcı başına TEK oy verir (votes/{uid}); oy ile birlikte anketin sayaçları
+    // aynı işlemde tam +1 artmak zorundadır, böylece sayılar sahte artırılamaz. Bireysel oylar yalnızca oy sahibine ve editöre açıktır.
+    match /polls/{pId} {
+      allow read: if true;
+      allow create: if isEditor() &&
+        request.resource.data.get('createdBy', '') == request.auth.uid &&
+        request.resource.data.soru is string &&
+        request.resource.data.soru.size() >= 5 &&
+        request.resource.data.soru.size() <= 200 &&
+        request.resource.data.secenekler is list &&
+        request.resource.data.secenekler.size() >= 2 &&
+        request.resource.data.secenekler.size() <= 6;
+      allow update: if isEditor() || (
+        isAuthenticated() &&
+        resource.data.get('aktif', true) == true &&
+        (resource.data.get('endsAt', null) == null || request.time < resource.data.endsAt) &&
+        changedKeys().hasOnly(['toplam', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5']) &&
+        !exists(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)) &&
+        existsAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)) &&
+        request.resource.data.toplam == resource.data.get('toplam', 0) + 1 &&
+        request.resource.data.get('c0', 0) == resource.data.get('c0', 0) + (getAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)).data.option == 0 ? 1 : 0) &&
+        request.resource.data.get('c1', 0) == resource.data.get('c1', 0) + (getAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)).data.option == 1 ? 1 : 0) &&
+        request.resource.data.get('c2', 0) == resource.data.get('c2', 0) + (getAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)).data.option == 2 ? 1 : 0) &&
+        request.resource.data.get('c3', 0) == resource.data.get('c3', 0) + (getAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)).data.option == 3 ? 1 : 0) &&
+        request.resource.data.get('c4', 0) == resource.data.get('c4', 0) + (getAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)).data.option == 4 ? 1 : 0) &&
+        request.resource.data.get('c5', 0) == resource.data.get('c5', 0) + (getAfter(/databases/$(database)/documents/polls/$(pId)/votes/$(request.auth.uid)).data.option == 5 ? 1 : 0)
+      );
+      allow delete: if isEditor();
+
+      match /votes/{vId} {
+        allow read: if isAuthenticated() && (vId == request.auth.uid || isEditor());
+        allow create: if isAuthenticated() &&
+          vId == request.auth.uid &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.option is int &&
+          request.resource.data.option >= 0 &&
+          request.resource.data.option < get(/databases/$(database)/documents/polls/$(pId)).data.secenekler.size() &&
+          get(/databases/$(database)/documents/polls/$(pId)).data.get('aktif', true) == true &&
+          getAfter(/databases/$(database)/documents/polls/$(pId)).data.toplam == get(/databases/$(database)/documents/polls/$(pId)).data.get('toplam', 0) + 1;
+        allow update: if false;
+        allow delete: if isEditor();
+      }
+    }
+
+    // Paylaşım durumu takibi (FAZ 2B): yalnızca editör/yönetici kendi adına kayıt ekler ve okur.
+    match /social_shares/{shareId} {
+      allow read: if isEditor();
+      allow create: if isEditor() && request.resource.data.get('uid', '') == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Canlı yayın ayarı: herkes okur; yalnızca editör/yönetici değiştirir.
+    match /ayarlar/{ayarId} {
+      allow read: if true;
+      allow write: if isEditor();
+    }
+
+    // ---------- Haberler ----------
+    // Editör/yönetici doğrudan yayınlar; herkes (girişsiz dahil) yalnızca "onay bekleyen ihbar" gönderebilir.
+    match /haberler/{haberId} {
+      allow read: if true;
+      allow create: if isEditor() || (
+        request.resource.data.get('status', '') == 'pending' &&
+        request.resource.data.get('isTip', false) == true
+      );
+      allow update: if isEditor() ||
+        (isAuthenticated() && changedKeys().hasOnly(['okunmaSayisi', 'begeniSayisi']));
+      allow delete: if isEditor();
+    }
+
+    // İlk açılış örnek veri işareti: yalnızca yönetici yazabilir
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Geri kalan her şey kapalı
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
