@@ -196,6 +196,8 @@ export interface UserProfile {
   welcomeBonusGiven?: boolean;
   hesapTipi?: 'usta' | 'esnaf';
   esnafKategori?: string;
+  /** Usta/esnafın seçtiği tüm faaliyet alanları (ilk eleman ana alan = esnafKategori) */
+  faaliyetAlanlari?: string[];
   isyeri?: string;
   businessName?: string;
   adres?: string;

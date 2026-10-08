@@ -30,7 +30,7 @@ import { useApp } from '../app/AppContext';
 export function ProfileScreen() {
   const {
     user, profile, demoRole, setShowAdminPanelModal, activeTab, setActiveTab, notifPrefs,
-    serviceRequests, offersMap, isEsnafAccount, myBusiness, myCampaignsAll, setShowBusinessEditor,
+    serviceRequests, marketplaceItems, offersMap, isEsnafAccount, myBusiness, myCampaignsAll, setShowBusinessEditor,
     bizStats, setServiceViewMode, setShowAuthModal, setAuthMode, setShowRequestDetail,
     setShowCreditModal, profileSubTab, setProfileSubTab, newsNotifPrefs, openBusiness, loadBizStats,
     openCampaignModal, handleAddSample, handleRemoveSample, handleSaveNotifPrefs, openWhatsApp,
@@ -56,6 +56,14 @@ export function ProfileScreen() {
               setAuthMode('login');
               setShowAuthModal(true);
             }}
+            stats={
+              user
+                ? [
+                    { label: 'İlanım', value: marketplaceItems.filter((m) => m.uid === user.uid).length },
+                    { label: 'Hizmet Talebim', value: serviceRequests.filter((r) => r.uid === user.uid).length },
+                  ]
+                : undefined
+            }
           />
 
           {/* Role göre "Benim Alanım" kartı */}
@@ -281,7 +289,7 @@ export function ProfileScreen() {
                       <div className="p-2.5 bg-white rounded-xl border border-amber-100">
                         <span className="text-[10px] font-bold text-amber-700 block uppercase">Hizmet Sektörü</span>
                         <span className="font-bold text-gray-800 text-xs">
-                          {profile?.esnafKategori || 'Tesisat & Su Hizmetleri'}
+                          {profile?.esnafKategori || '—'}
                         </span>
                       </div>
 

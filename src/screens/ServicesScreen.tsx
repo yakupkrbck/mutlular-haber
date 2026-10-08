@@ -1,4 +1,5 @@
 // Ekran: ServicesScreen (eski App.tsx 6573–7443)
+import { esnafCategoryIds } from '../serviceMatching';
 import { isUstaProfile, requestMatchesEsnaf } from '../serviceMatching';
 import { MockupMasterCard } from '../MockupViewComponents';
 import {
@@ -25,9 +26,20 @@ export function ServicesScreen() {
     user, profile, demoRole, setSelectedMockupMaster, activeTab, serviceRequests, offersMap,
     requestScope, setRequestScope, ALL_SERVICE_CATEGORIES, serviceViewMode, setServiceViewMode,
     activeExpandedCatId, setActiveExpandedCatId, masterCategoryFilter, setMasterCategoryFilter,
-    serviceSectorSearch, setServiceSectorSearch, handleOpenCategoryRequest, setShowOfferModal,
+    serviceSectorSearch, setServiceSectorSearch, handleOpenCategoryRequest, setShowOfferModal, ustaProfiles,
     setShowRequestDetail, handleOpenEditRequest, handleOpenArtisanOnboarding,
   } = useApp();
+  // Gerçek (ortak listedeki) usta sayısı: ana kategoriye göre
+  const ustaCountFor = (mainCatId: string) =>
+    ustaProfiles.filter((u: any) => {
+      const ids = esnafCategoryIds({ esnafKategori: u.alanlar[0], faaliyetAlanlari: u.alanlar } as any, ALL_SERVICE_CATEGORIES as any);
+      return ids === 'all' || ids.has(mainCatId);
+    }).length;
+  const NO_USTA_TEXT = 'Şu an bu alanda faaliyet yürüten ustamız bulunmamaktadır. İlerleyen günlerde yeni usta kayıtlarıyla birlikte hizmete açılacaktır.';
+  const NoUstaNotice = () => (
+    <p className="flex-1 text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">{NO_USTA_TEXT}</p>
+  );
+
   return (
     <>
       {activeTab === 'services' && (() => {
@@ -243,16 +255,17 @@ export function ServicesScreen() {
                             <p className="text-xs text-slate-500 line-clamp-2">{sub.desc}</p>
                           </div>
                           <div className="pt-3 mt-2 border-t border-slate-100 flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setServiceViewMode('masters');
-                                setMasterCategoryFilter(mainCat.id);
-                              }}
-                              className="flex-1 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                            >
-                              <UserIcon className="w-3.5 h-3.5" />
-                              <span>Ustaları Gör</span>
-                            </button>
+                            {ustaCountFor(mainCat.id) === 0 ? (
+                              <NoUstaNotice />
+                            ) : (
+                              <button
+                                onClick={() => handleOpenCategoryRequest(mainCat.id, sub.name)}
+                                className="flex-1 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                              >
+                                <UserIcon className="w-3.5 h-3.5" />
+                                <span>Ustalardan Fiyat Al</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -560,16 +573,17 @@ export function ServicesScreen() {
 
                           {/* Alt Kategori Butonları */}
                           <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setServiceViewMode('masters');
-                                setMasterCategoryFilter(activeExpandedCategory.id);
-                              }}
-                              className="flex-1 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                            >
-                              <UserIcon className="w-3.5 h-3.5" />
-                              <span>Bu Alandaki Ustaları Gör</span>
-                            </button>
+                            {ustaCountFor(activeExpandedCategory.id) === 0 ? (
+                              <NoUstaNotice />
+                            ) : (
+                              <button
+                                onClick={() => handleOpenCategoryRequest(activeExpandedCategory.id)}
+                                className="flex-1 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                              >
+                                <UserIcon className="w-3.5 h-3.5" />
+                                <span>Bu Alandaki Ustalardan Fiyat Al</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}

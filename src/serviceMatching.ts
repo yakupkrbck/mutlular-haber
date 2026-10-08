@@ -118,10 +118,12 @@ export function esnafCategoryIds(profile: UserProfile | null | undefined, mainCa
   if (cat.includes('diğer mahalle')) return 'all';
   // Kategori adı, listedeki (topluluğun eklediği alanlar dahil) bir kategoriyle birebir aynıysa doğrudan eşleşir.
   const tags = (profile.uzmanlikEtiketleri || []).map(norm);
+  // Birden fazla faaliyet alanı seçmiş ustalar (ana alan + ek alanlar)
+  const areas = [profile.esnafKategori, ...(((profile as any).faaliyetAlanlari as string[] | undefined) || [])].map((a) => norm(a));
   mainCats.forEach(c => {
-    if (norm(c.name) === cat || norm(c.shortTitle) === cat || tags.includes(norm(c.name))) ids.add(c.id);
+    if (norm(c.name) === cat || norm(c.shortTitle) === cat || tags.includes(norm(c.name)) || areas.includes(norm(c.name)) || areas.includes(norm(c.shortTitle))) ids.add(c.id);
   });
-  const text = `${cat} ${tags.join(' ')}`;
+  const text = `${areas.join(' ')} ${tags.join(' ')}`;
   for (const [id, words] of Object.entries(KEYWORDS)) {
     if (words.some(w => text.includes(w))) ids.add(id);
   }

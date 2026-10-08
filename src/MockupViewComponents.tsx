@@ -923,7 +923,8 @@ export function MockupProfileScreen({
   onOpenEdit,
   onNavigateTab,
   onLogout,
-  onOpenAuth
+  onOpenAuth,
+  stats
 }: {
   user: any;
   profile: any;
@@ -931,6 +932,8 @@ export function MockupProfileScreen({
   onNavigateTab: (tab: any) => void;
   onLogout: () => void;
   onOpenAuth?: () => void;
+  /** Kullanıcının gerçek kayıtlarından sayaçlar (örn. { İlanım: 3 }). Verilmezse sayaç bloğu gösterilmez. */
+  stats?: { label: string; value: number }[];
 }) {
   const isLoggedIn = Boolean(user || profile);
   const displayName = profile?.name || user?.displayName || (user?.email ? user.email.split('@')[0] : 'Misafir Sakin');
@@ -999,21 +1002,20 @@ export function MockupProfileScreen({
         </div>
       </div>
 
-      {/* 3 Stats Card Matching Mockup (12 İlanım, 8 Hizmet Talebim, 45 Takipçi) */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 shadow-xs grid grid-cols-3 divide-x divide-slate-100 text-center">
-        <div className="px-2">
-          <div className="font-black text-base text-slate-900">12</div>
-          <div className="text-[11px] text-slate-400 font-medium">İlanım</div>
+      {/* Gerçek sayaçlar: yalnızca giriş yapmış kullanıcının kendi kayıtları. Veri yoksa blok gösterilmez. */}
+      {isLoggedIn && stats && stats.length > 0 && (
+        <div
+          className="bg-white rounded-2xl border border-slate-200/80 p-3.5 shadow-xs grid divide-x divide-slate-100 text-center"
+          style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}
+        >
+          {stats.map((st) => (
+            <div key={st.label} className="px-2">
+              <div className="font-black text-base text-slate-900">{st.value}</div>
+              <div className="text-[11px] text-slate-400 font-medium">{st.label}</div>
+            </div>
+          ))}
         </div>
-        <div className="px-2">
-          <div className="font-black text-base text-slate-900">8</div>
-          <div className="text-[11px] text-slate-400 font-medium">Hizmet Talebim</div>
-        </div>
-        <div className="px-2">
-          <div className="font-black text-base text-slate-900">45</div>
-          <div className="text-[11px] text-slate-400 font-medium">Takipçi</div>
-        </div>
-      </div>
+      )}
 
       {/* Menu List Items with Arrows */}
       <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs divide-y divide-slate-100">
@@ -1039,27 +1041,7 @@ export function MockupProfileScreen({
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
 
-        <button
-          onClick={() => alert('Favori ilanlarınız')}
-          className="w-full flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors text-left cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <Heart className="w-4 h-4 text-slate-600" />
-            <span className="font-bold text-xs text-slate-800">Favorilerim</span>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
-        </button>
 
-        <button
-          onClick={() => alert('Yorumlarınız ve değerlendirmeleriniz')}
-          className="w-full flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors text-left cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <MessageSquare className="w-4 h-4 text-slate-600" />
-            <span className="font-bold text-xs text-slate-800">Yorumlarım</span>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
-        </button>
 
         <button
           onClick={onOpenEdit}
@@ -1072,16 +1054,6 @@ export function MockupProfileScreen({
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
 
-        <button
-          onClick={() => alert('Mahalle Yardım & Destek Masası')}
-          className="w-full flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors text-left cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <HelpCircle className="w-4 h-4 text-slate-600" />
-            <span className="font-bold text-xs text-slate-800">Yardım &amp; Destek</span>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
-        </button>
 
         {isLoggedIn ? (
           <button

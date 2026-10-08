@@ -6,7 +6,7 @@ import { useApp } from '../app/AppContext';
 export function NewsScreen() {
   const {
     activeTab, newsSearchTerm, setNewsSearchTerm, newsSortBy, setNewsSortBy, newsFilter,
-    setNewsFilter, newsItems, handleOpenNewsDetail, trendingNews, filteredNews,
+    setNewsFilter, newsItems, handleOpenNewsDetail, trendingNews, filteredNews, newsCategories,
   } = useApp();
   return (
     <>
@@ -206,15 +206,7 @@ export function NewsScreen() {
               <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
                 {[
                   { id: 'tumu', label: 'Tüm Haberler', icon: '🌐' },
-                  { id: 'Muhtarlık & Resmi', label: 'Muhtarlık & Resmi', icon: '📜' },
-                  { id: 'Belediye & Altyapı', label: 'Belediye & Altyapı', icon: '🏛️' },
-                  { id: 'Çevre & Parklar', label: 'Çevre & Parklar', icon: '🌳' },
-                  { id: 'Asayiş & Güvenlik', label: 'Asayiş & Güvenlik', icon: '👮' },
-                  { id: 'Dayanışma & Doğa', label: 'Dayanışma & Doğa', icon: '🤝' },
-                  { id: 'Eğitim & Kültür', label: 'Eğitim & Kültür', icon: '🎓' },
-                  { id: 'Spor & Sağlık', label: 'Spor & Sağlık', icon: '⚽' },
-                  { id: 'Esnaf & Çarşı', label: 'Esnaf & Çarşı', icon: '🏪' },
-                  { id: 'Duyuru & Taziye', label: 'Duyuru & Taziye', icon: '📢' },
+                  ...newsCategories.map((c) => ({ id: c.id, label: c.ad, icon: c.ikon })),
                 ].map((cat) => {
                   const isSelected = newsFilter === cat.id;
                   const count = cat.id === 'tumu'

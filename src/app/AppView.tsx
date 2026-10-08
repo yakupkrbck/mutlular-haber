@@ -55,6 +55,7 @@ import { OnboardingModal } from '../modals/OnboardingModal';
 
 export function AppView() {
   const {
+    busLines, newsCategories,
     user, profile, setProfile, demoRole, setDemoRole, realRole, allUsersList, showAdminPanelModal,
     setShowAdminPanelModal, selectedMockupListing, setSelectedMockupListing, selectedMockupMaster,
     setSelectedMockupMaster, showMockupPostSheet, setShowMockupPostSheet, mockupMarketCategory,
@@ -522,6 +523,8 @@ export function AppView() {
         onRejectTip={handleRejectNewsTip}
         onDeleteNews={handleDeleteNewsItem}
         liveConfig={liveConfig}
+        busLines={busLines}
+        newsCategories={newsCategories}
         onSaveLive={handleSaveLive}
         shareSources={adminShareSources}
         onPrepareShare={openShareStudio}

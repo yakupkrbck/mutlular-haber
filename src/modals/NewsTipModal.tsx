@@ -9,7 +9,7 @@ import { useApp } from '../app/AppContext';
 export function NewsTipModal() {
   const {
     user, profile, demoRole, newsItems, setNewsItems, showNewsModal, setShowNewsModal, showToast,
-    isUserAdmin, isUserEditor,
+    isUserAdmin, isUserEditor, newsCategories,
   } = useApp();
   return (
     <>
@@ -84,12 +84,9 @@ export function NewsTipModal() {
               <div>
                 <label className="text-[11px] font-bold text-slate-500 block mb-1">Kategori</label>
                 <select name="kategori" className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500">
-                  <option value="Belediye & Hizmet">Belediye &amp; Hizmet</option>
-                  <option value="Çevre & Parklar">Çevre &amp; Parklar</option>
-                  <option value="Asayiş & Güvenlik">Asayiş &amp; Güvenlik</option>
-                  <option value="Dayanışma & Doğa">Dayanışma &amp; Doğa</option>
-                  <option value="Eğitim & Kültür">Eğitim &amp; Kültür</option>
-                  <option value="Duyuru">Genel Duyuru</option>
+                  {newsCategories.map((c) => (
+                    <option key={c.id} value={c.ad}>{c.ikon} {c.ad}</option>
+                  ))}
                 </select>
               </div>
 

@@ -22,7 +22,7 @@ export function HomeScreen() {
     setSelectedMockupListing, activeTab, setActiveTab, setShowVefatModal,
     setMarketCategoryFilter, marketplaceItems, lostFoundItems, invitationItems, deceasedList,
     handleOpenNewsDetail, newsItems, campaigns, setShowNewsModal, setShowMarketModal,
-    profile, user, polls, isPollOpen, myVotes, handleVotePoll,
+    profile, user, polls, isPollOpen, myVotes, handleVotePoll, busLines,
     setSearchQuery, setShowSearchModal,
     setKursuBaslik, setKursuIcerik, setKursuKonum, setKursuFoto, setKursuAutoCamera, setShowKursuModal,
   } = useApp();
@@ -63,7 +63,7 @@ export function HomeScreen() {
           />
 
           {/* 2. BURULAŞ: resmi canlı otobüs takibine bağlantı (uydurma varış süresi yok) */}
-          <HomeUlasimStrip />
+          <HomeUlasimStrip remoteLines={busLines} />
 
           {/* 3. MAHALLE TANITIM EKRANI: haber, emlak, 2. el, ilan ve panodan en son gerçek paylaşımlar */}
           <HomeShowcase

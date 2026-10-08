@@ -1,4 +1,8 @@
 // Uygulamanın tüm durumu (state), Firestore dinleyicileri ve işleyicileri (eski App.tsx 959–4744).
+import { installBackNav, useOverlayBack } from '../backNav';
+import { sanitizeRemote, type BusLine } from '../busData';
+import { ustaAreas, resolveNewsCategories } from '../categories';
+import { COORDINATOR_PHONE_INTL } from '../siteConfig';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   type User,
@@ -110,6 +114,24 @@ export function useAppController() {
   
   // İlk açılışta ekran adres çubuğundan belirlenir (mutlularhaber.com/hizmet doğrudan Hizmet ekranını açar)
   const [activeTab, setActiveTab] = useState<MainTab>(() => (tabFromPathname(window.location.pathname, getBase()) as MainTab | null) ?? 'home');
+  // Geri tuşu: ana sayfa dışındayken önce ana sayfaya dön, ana sayfadayken "çıkmak için tekrar basın" uyarısı ver.
+  const activeTabRef = useRef<MainTab>(activeTab);
+  activeTabRef.current = activeTab;
+  const showToastRef = useRef<(text: string, isError?: boolean) => void>(() => {});
+  useEffect(() => {
+    installBackNav({
+      onBase: () => {
+        if (activeTabRef.current !== 'home') {
+          window.history.replaceState({ __base: true }, '', getBase() || '/');
+          setActiveTab('home');
+          return 'home-redirected';
+        }
+        return 'confirm';
+      },
+      showExitToast: () => showToastRef.current('Çıkmak için tekrar geri tuşuna basın'),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [showMenuDrawer, setShowMenuDrawer] = useState(false);
   const [showVefatModal, setShowVefatModal] = useState<boolean>(false);
 
@@ -189,6 +211,11 @@ export function useAppController() {
   const fetchedPhoneIdsRef = useRef<Set<string>>(new Set());
   const [notifSeenAt, setNotifSeenAt] = useState<number>(0);
   const [customAreas, setCustomAreas] = useState<HizmetAlani[]>([]);
+  // Yönetici panelinden eklenen işletme (esnaf) türleri: hizmet_alanlari içinde tur === 'esnaf'
+  const [customEsnafTurleri, setCustomEsnafTurleri] = useState<string[]>([]);
+  // Birden fazla faaliyet alanı: ana alana ek olarak seçilenler
+  const [artisanExtraAreas, setArtisanExtraAreas] = useState<string[]>([]);
+  const [editExtraAreas, setEditExtraAreas] = useState<string[]>([]);
   // Google ile ilk kez giren kullanıcının "hesabını tamamla" ekranı
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [obRole, setObRole] = useState<'sakin' | 'usta' | 'esnaf'>('sakin');
@@ -662,22 +689,22 @@ export function useAppController() {
     })();
   }, [deepLink, newsItems]);
 
+  showToastRef.current = showToast;
+
+  // Haber detayı açılınca adres çubuğuna ?haber= eklenir. Geçmiş girişini geri tuşu modülü (useOverlayBack) yönetir:
+  // geri tuşu detayı kapatır; ekrandaki X ile kapatınca da fazladan geçmiş girişi kalmaz.
   const handleOpenNewsDetail = (news: SampleNewsItem) => {
     setSelectedNews(news);
-    const url = new URL(window.location.href);
-    url.searchParams.set('haber', news.id || encodeURIComponent(news.baslik));
-    window.history.pushState({}, '', url.toString());
   };
 
   const handleCloseNewsDetail = () => {
     setSelectedNews(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete('haber');
-    url.searchParams.delete('news');
-    url.searchParams.delete('id');
     resolvedLinkRef.current = '';
     setDeepLink(null);
-    window.history.pushState({}, '', cleanedUrl(window.location, getBase(), TAB_PATHS[activeTab] || ''));
+  };
+
+  const cleanNewsUrl = () => {
+    window.history.replaceState(window.history.state, '', cleanedUrl(window.location, getBase(), TAB_PATHS[activeTabRef.current] || ''));
   };
 
   // Haber bağlantısı: yeni içerik adresi şeması (eski ?haber= adresleri çalışmaya devam eder)
@@ -1092,9 +1119,16 @@ export function useAppController() {
     // Faaliyet alanları (ustaların eklediği)
     const unsubAreas = onSnapshot(collection(db, 'hizmet_alanlari'), (snap) => {
       const items: HizmetAlani[] = [];
-      snap.forEach((d) => items.push({ ...(d.data() as any), id: d.id } as HizmetAlani));
+      const esnafTurleri: string[] = [];
+      snap.forEach((d) => {
+        const x = d.data() as any;
+        if (x && x.tur === 'esnaf') { if (typeof x.ad === 'string' && x.ad) esnafTurleri.push(x.ad); return; }
+        items.push({ ...x, id: d.id } as HizmetAlani);
+      });
       items.sort((a, b) => a.ad.localeCompare(b.ad, 'tr'));
+      esnafTurleri.sort((a, b) => a.localeCompare(b, 'tr'));
       setCustomAreas(items);
+      setCustomEsnafTurleri(esnafTurleri);
     }, (err) => console.warn('hizmet_alanlari firestore:', err.message));
 
     // Service Requests
@@ -2727,11 +2761,13 @@ export function useAppController() {
             welcomeBonusGiven: authRole === 'usta' ? true : undefined,
             isyeri: authRole !== 'sakin' ? authIsyeri.trim() : undefined,
             esnafKategori: authRole !== 'sakin' ? areaName : undefined,
+            faaliyetAlanlari: authRole !== 'sakin' && areaName ? [areaName] : undefined,
             isApproved: true,
             createdAt: new Date()
           };
 
           await setDoc(doc(db, 'users', userUid), newProfile);
+          await syncUstaProfileDoc(userUid, newProfile);
           setProfile(newProfile);
           setDemoRole(finalRole);
           setRealRole(finalRole);
@@ -2885,6 +2921,7 @@ export function useAppController() {
         welcomeBonusGiven: obRole === 'usta' ? true : undefined,
         isyeri: isBiz ? obIsyeri.trim() : undefined,
         esnafKategori: isBiz ? areaName : undefined,
+        faaliyetAlanlari: isBiz && areaName ? [areaName] : undefined,
         adres: isBiz ? obAdres.trim() : undefined,
         calismaSaatleri: isBiz ? 'Pazartesi - Cumartesi: 08:30 - 19:30' : undefined,
         uzmanlikEtiketleri: isBiz ? [] : undefined,
@@ -2893,6 +2930,7 @@ export function useAppController() {
         createdAt: new Date(),
       };
       await setDoc(doc(db, 'users', cu.uid), newProfile);
+      await syncUstaProfileDoc(cu.uid, newProfile);
       setProfile(newProfile);
       setDemoRole(newProfile.role);
       setRealRole(newProfile.role);
@@ -3024,6 +3062,7 @@ export function useAppController() {
     setEditRole(profile.role === 'admin' || profile.role === 'editor' ? 'sakin' : (profile.role === 'esnaf' ? 'esnaf' : 'sakin'));
     setEditIsyeri(profile.isyeri || '');
     setEditEsnafKategori(profile.esnafKategori || (profile.hesapTipi === 'esnaf' ? ESNAF_TURLERI[0] : ALL_SERVICE_CATEGORIES[0].name));
+    setEditExtraAreas(ustaAreas(profile).filter((a) => a !== profile.esnafKategori));
     setEditAdres(profile.adres || 'Mutlular Mahallesi, Yıldırım / Bursa');
     setEditCalismaSaatleri(profile.calismaSaatleri || 'Pazartesi - Cumartesi: 08:30 - 19:30');
     const kindNow: 'usta' | 'esnaf' = profile.hesapTipi || (isUstaProfile(profile) ? 'usta' : 'esnaf');
@@ -3043,6 +3082,7 @@ export function useAppController() {
     if (profile) {
       setArtisanBusinessName(profile.isyeri || (profile.name ? `${profile.name} ${nextKind === 'usta' ? 'Usta' : 'Esnaf'}` : ''));
       setArtisanCategory(profile.esnafKategori && (profile.hesapTipi ? profile.hesapTipi === nextKind : true) ? profile.esnafKategori : defaultArea);
+      setArtisanExtraAreas(ustaAreas(profile).filter((a) => a !== profile.esnafKategori));
       setArtisanAddress(profile.adres || 'Mutlular Mahallesi, Yıldırım / Bursa');
       setArtisanWorkingHours(profile.calismaSaatleri || 'Pazartesi - Cumartesi: 08:30 - 19:30');
       setArtisanTags(profile.uzmanlikEtiketleri && profile.uzmanlikEtiketleri.length > 0
@@ -3123,6 +3163,7 @@ export function useAppController() {
           hesapTipi,
           isyeri: artisanBusinessName.trim(),
           esnafKategori: areaName,
+          faaliyetAlanlari: ustaAreas({ esnafKategori: areaName, faaliyetAlanlari: isUsta ? artisanExtraAreas : [] }),
           adres: artisanAddress.trim(),
           calismaSaatleri: artisanWorkingHours.trim() || 'Pazartesi - Cumartesi: 08:30 - 19:30',
           uzmanlikEtiketleri: isUsta ? artisanTags : [],
@@ -3137,6 +3178,7 @@ export function useAppController() {
           hesapTipi,
           isyeri: updatedProfile.isyeri,
           esnafKategori: updatedProfile.esnafKategori,
+          faaliyetAlanlari: updatedProfile.faaliyetAlanlari || [],
           adres: updatedProfile.adres,
           calismaSaatleri: updatedProfile.calismaSaatleri,
           uzmanlikEtiketleri: updatedProfile.uzmanlikEtiketleri || [],
@@ -3147,6 +3189,7 @@ export function useAppController() {
         };
         if (grantBonus) payload.welcomeBonusGiven = true;
         await updateDoc(userRef, payload);
+        await syncUstaProfileDoc(userRef.id, updatedProfile);
 
         setProfile(updatedProfile);
         setDemoRole('esnaf');
@@ -3186,6 +3229,7 @@ export function useAppController() {
             telefon: artisanPhone.trim(),
             isyeri: artisanBusinessName.trim(),
             esnafKategori: areaName,
+            faaliyetAlanlari: ustaAreas({ esnafKategori: areaName, faaliyetAlanlari: isUsta ? artisanExtraAreas : [] }),
             adres: artisanAddress.trim(),
             calismaSaatleri: artisanWorkingHours.trim() || 'Pazartesi - Cumartesi: 08:30 - 19:30',
             uzmanlikEtiketleri: isUsta ? artisanTags : [],
@@ -3197,6 +3241,7 @@ export function useAppController() {
           };
 
           await setDoc(doc(db, 'users', userUid), newProfile);
+          await syncUstaProfileDoc(userUid, newProfile);
           setProfile(newProfile);
           setDemoRole('esnaf');
           setRealRole('esnaf');
@@ -3290,6 +3335,7 @@ export function useAppController() {
         isyeri: editRole === 'esnaf' ? (editIsyeri.trim() || profile.isyeri || editName) : undefined,
         hesapTipi: editRole === 'esnaf' ? editHesapTipi : undefined,
         esnafKategori: editRole === 'esnaf' ? (resolvedArea || profile.esnafKategori) : undefined,
+        faaliyetAlanlari: editRole === 'esnaf' ? ustaAreas({ esnafKategori: resolvedArea || profile.esnafKategori, faaliyetAlanlari: editHesapTipi === 'usta' ? editExtraAreas : [] }) : undefined,
         adres: editRole === 'esnaf' ? (editAdres.trim() || profile.adres) : profile.adres,
         calismaSaatleri: editRole === 'esnaf' ? (editCalismaSaatleri.trim() || profile.calismaSaatleri) : profile.calismaSaatleri,
         uzmanlikEtiketleri: editRole === 'esnaf' ? (editHesapTipi === 'usta' ? editUzmanlikEtiketleri : []) : profile.uzmanlikEtiketleri,
@@ -3305,11 +3351,13 @@ export function useAppController() {
           isyeri: updated.isyeri || '',
           hesapTipi: updated.hesapTipi || '',
           esnafKategori: updated.esnafKategori || '',
+          faaliyetAlanlari: updated.faaliyetAlanlari || [],
           adres: updated.adres || '',
           calismaSaatleri: updated.calismaSaatleri || '',
           uzmanlikEtiketleri: updated.uzmanlikEtiketleri || [],
           esnafAciklama: updated.esnafAciklama || '',
         });
+        await syncUstaProfileDoc(user.uid, updated);
       }
       setProfile(updated);
       setDemoRole(savedRole);
@@ -3821,16 +3869,19 @@ export function useAppController() {
     return c.slice(0, 40);
   };
 
-  // Usta için hizmet alanı, esnaf için işletme türü seçimi (+ "Diğer" ile kendi alanını yazma)
+  // Usta için hizmet alanı, esnaf için işletme türü seçimi: yalnızca yöneticinin yönettiği standart listeden.
+  // (Eski imza korunur: custom/onCustom artık kullanılmaz; yeni alan isteği yöneticiye iletilir.)
   const renderAreaSelect = (
     kind: 'usta' | 'esnaf',
     value: string,
     onChange: (v: string) => void,
-    custom: string,
-    onCustom: (v: string) => void
+    _custom?: string,
+    _onCustom?: (v: string) => void
   ) => {
-    const options: string[] = kind === 'esnaf' ? ESNAF_TURLERI : ALL_SERVICE_CATEGORIES.map((c: any) => c.name as string);
-    const legacy = value && value !== DIGER_ALAN && !options.includes(value) ? value : '';
+    const options: string[] = kind === 'esnaf'
+      ? [...ESNAF_TURLERI, ...customEsnafTurleri.filter((t) => !ESNAF_TURLERI.includes(t))]
+      : ALL_SERVICE_CATEGORIES.map((c: any) => c.name as string);
+    const legacy = value && !options.includes(value) ? value : '';
     const cls = 'w-full text-xs p-2.5 bg-white border border-amber-200 rounded-xl focus:outline-none focus:border-amber-500 font-semibold';
     return (
       <div className="space-y-2">
@@ -3839,25 +3890,18 @@ export function useAppController() {
           {options.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
-          <option value={DIGER_ALAN}>➕ Diğer (kendi alanımı yazacağım)</option>
         </select>
-        {value === DIGER_ALAN && (
-          <div className="space-y-1">
-            <input
-              type="text"
-              value={custom}
-              maxLength={40}
-              onChange={(e) => onCustom(e.target.value)}
-              placeholder={kind === 'esnaf' ? 'Örn: Bisiklet Tamir Dükkanı' : 'Örn: Klima Servisi'}
-              className="w-full text-xs p-2.5 bg-white border border-amber-300 rounded-xl focus:outline-none focus:border-amber-500 font-semibold"
-            />
-            <p className="text-[10px] text-amber-900/80 leading-snug">
-              {kind === 'esnaf'
-                ? 'İşletme türünüz profilinizde görünür.'
-                : 'Yazdığınız faaliyet alanı sisteme eklenir: komşular bu alanda talep açabilir, siz de teklif verebilirsiniz.'}
-            </p>
-          </div>
-        )}
+        <p className="text-[10px] text-amber-900/80 leading-snug">
+          Aradığınız {kind === 'esnaf' ? 'işletme türü' : 'faaliyet alanı'} listede yok mu?{' '}
+          <button
+            type="button"
+            onClick={() => openWhatsApp(COORDINATOR_PHONE_INTL, `Merhaba, Mutlular Haber'de ${kind === 'esnaf' ? 'işletme türü' : 'faaliyet alanı'} listesine şunun eklenmesini rica ederim: `)}
+            className="underline font-bold cursor-pointer"
+          >
+            Yöneticiden ekletin
+          </button>
+          .
+        </p>
       </div>
     );
   };
@@ -3897,6 +3941,120 @@ export function useAppController() {
 
   const headerBrand = getHeaderBrand();
 
+  // ── GERİ TUŞU: açık pencere / detay ekranları (üstteki önce kapanır) ──
+  useOverlayBack(!!selectedNews, handleCloseNewsDetail, 'haber', {
+    url: () => {
+      const u = new URL(window.location.href);
+      if (selectedNews) u.searchParams.set('haber', selectedNews.id || encodeURIComponent(selectedNews.baslik));
+      return u.toString();
+    },
+    afterClose: cleanNewsUrl,
+  });
+  useOverlayBack(showQuickActionSheet, () => setShowQuickActionSheet(false), 'hizli');
+  useOverlayBack(showAuthModal, () => setShowAuthModal(false), 'giris');
+  useOverlayBack(showNewsModal, () => setShowNewsModal(false), 'ihbar');
+  useOverlayBack(showMarketModal, () => setShowMarketModal(false), 'ilanver');
+  useOverlayBack(showLostFoundModal, () => setShowLostFoundModal(false), 'kayip');
+  useOverlayBack(showDavetModal, () => setShowDavetModal(false), 'davet');
+  useOverlayBack(showKursuModal, () => setShowKursuModal(false), 'kursu');
+  useOverlayBack(showCampaignModal, () => setShowCampaignModal(false), 'kampanya');
+  useOverlayBack(showServiceModal, () => setShowServiceModal(false), 'hizmet');
+  useOverlayBack(!!showOfferModal, () => setShowOfferModal(null), 'teklif');
+  useOverlayBack(!!showRequestDetail, () => setShowRequestDetail(null), 'talep');
+  useOverlayBack(!!editingRequest, () => setEditingRequest(null), 'talepduzenle');
+  useOverlayBack(showCreditModal, () => setShowCreditModal(false), 'kredi');
+  useOverlayBack(showProfileEditModal, () => setShowProfileEditModal(false), 'profilduzenle');
+  useOverlayBack(showArtisanRegisterModal, () => setShowArtisanRegisterModal(false), 'ustakayit');
+  useOverlayBack(showNewDeceasedModal, () => setShowNewDeceasedModal(false), 'vefatekle');
+  useOverlayBack(showVefatModal, () => setShowVefatModal(false), 'vefat');
+  useOverlayBack(showEmergencyModal, () => setShowEmergencyModal(false), 'acil');
+  useOverlayBack(!!selectedEmlakItem, () => setSelectedEmlakItem(null), 'emlak');
+  useOverlayBack(!!selectedLetgoItem, () => setSelectedLetgoItem(null), 'ikinciel');
+  useOverlayBack(!!selectedMockupListing, () => setSelectedMockupListing(null), 'ilandetay');
+  useOverlayBack(!!selectedMockupMaster, () => setSelectedMockupMaster(null), 'ustadetay');
+  useOverlayBack(showMockupPostSheet, () => setShowMockupPostSheet(false), 'gonderi');
+  useOverlayBack(showArmutWizard, () => setShowArmutWizard(false), 'teklifsihirbazi');
+  useOverlayBack(showBusinessEditor, () => setShowBusinessEditor(false), 'isletme');
+  useOverlayBack(showAdminPanelModal, () => setShowAdminPanelModal(false), 'yonetim');
+  useOverlayBack(showMenuDrawer, () => setShowMenuDrawer(false), 'menu');
+  useOverlayBack(showSearchModal, () => setShowSearchModal(false), 'arama');
+  useOverlayBack(showMutlularShareModal, () => setShowMutlularShareModal(false), 'paylas');
+  useOverlayBack(!!shareItem, () => setShareItem(null), 'paylasstudyo');
+  useOverlayBack(mutlularTvActive, () => setMutlularTvActive(false), 'canli');
+
+  // ── OTOBÜS HATLARI: yöneticinin girdiği güzergâh ve saatler (bus_lines) ──
+  const [busLines, setBusLines] = useState<Partial<BusLine>[]>([]);
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'bus_lines'),
+      (snap) => {
+        const list: Partial<BusLine>[] = [];
+        snap.forEach((d) => {
+          const x = sanitizeRemote(d.id, d.data());
+          if (x) list.push(x);
+        });
+        setBusLines(list);
+      },
+      (err) => console.warn('bus_lines:', err.message)
+    );
+    return () => unsub();
+  }, []);
+
+  // ── ORTAK USTA LİSTESİ (usta_profilleri): herkesin görebileceği, telefonsuz usta kaydı ──
+  // Arama sonuçlarında "bu alanda usta var mı?" bilgisi buradan gelir.
+  const [ustaProfiles, setUstaProfiles] = useState<{ uid: string; ad: string; alanlar: string[]; onayli: boolean }[]>([]);
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'usta_profilleri'),
+      (snap) => {
+        const list: { uid: string; ad: string; alanlar: string[]; onayli: boolean }[] = [];
+        snap.forEach((d) => {
+          const x = d.data() as any;
+          const alanlar = Array.isArray(x.alanlar) ? x.alanlar.filter((a: unknown) => typeof a === 'string' && a) : [];
+          if (alanlar.length === 0) return;
+          list.push({ uid: d.id, ad: typeof x.ad === 'string' ? x.ad : 'Usta', alanlar, onayli: x.onayli === true });
+        });
+        setUstaProfiles(list);
+      },
+      (err) => console.warn('usta_profilleri:', err.message)
+    );
+    return () => unsub();
+  }, []);
+
+  // ── HABER KATEGORİLERİ: yönetici panelinden yönetilir (yoksa varsayılan liste) ──
+  const [newsCategoriesRemote, setNewsCategoriesRemote] = useState<any[]>([]);
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'news_categories'),
+      (snap) => {
+        const list: any[] = [];
+        snap.forEach((d) => list.push({ ...(d.data() as any), id: d.id }));
+        setNewsCategoriesRemote(list);
+      },
+      (err) => console.warn('news_categories:', err.message)
+    );
+    return () => unsub();
+  }, []);
+  const newsCategories = useMemo(() => resolveNewsCategories(newsCategoriesRemote), [newsCategoriesRemote]);
+
+  // Usta kaydını ortak listeyle eşitler: usta ise yazar/günceller (onayli yalnızca yönetici değiştirir), değilse siler.
+  async function syncUstaProfileDoc(uid: string, p: UserProfile) {
+    try {
+      const ref = doc(db, 'usta_profilleri', uid);
+      if (p && p.role === 'esnaf' && p.hesapTipi === 'usta') {
+        const alanlar = ustaAreas(p);
+        const ad = (p.isyeri || p.name || 'Usta').slice(0, 80);
+        const snap = await getDoc(ref);
+        if (snap.exists()) await updateDoc(ref, { ad, alanlar, updatedAt: serverTimestamp() });
+        else await setDoc(ref, { uid, ad, alanlar, onayli: false, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      } else {
+        await deleteDoc(ref).catch(() => {});
+      }
+    } catch (e: any) {
+      console.warn('usta_profilleri eşitlenemedi:', e?.message);
+    }
+  }
+
   return {
     user, profile, setProfile, demoRole, setDemoRole, realRole, allUsersList, showAdminPanelModal,
     setShowAdminPanelModal, selectedMockupListing, setSelectedMockupListing, selectedMockupMaster,
@@ -3911,7 +4069,8 @@ export function useAppController() {
     setEsnafCategoryFilter, searchQuery, setSearchQuery, newsSearchTerm, setNewsSearchTerm,
     newsSortBy, setNewsSortBy, lostFoundFilter, setLostFoundFilter, newsFilter, setNewsFilter,
     campaignFilter, setCampaignFilter, newsItems, setNewsItems, marketplaceItems,
-    setMarketplaceItems, lostFoundItems, setLostFoundItems, serviceRequests, campaigns, offersMap, ustaPhones,
+    setMarketplaceItems, lostFoundItems, setLostFoundItems, serviceRequests, campaigns, offersMap, ustaPhones, busLines, ustaProfiles, newsCategories, customEsnafTurleri,
+    artisanExtraAreas, setArtisanExtraAreas, editExtraAreas, setEditExtraAreas,
     showOnboarding, obRole, setObRole, obAd, setObAd, obSoyad, setObSoyad, obPhone, setObPhone,
     obIsyeri, setObIsyeri, obArea, setObArea, obCustomArea, setObCustomArea, obAdres, setObAdres,
     obSaving, authCustomArea, setAuthCustomArea, artisanKind, setArtisanKind, artisanCustomArea,

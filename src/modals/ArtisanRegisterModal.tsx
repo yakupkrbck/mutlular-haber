@@ -1,4 +1,5 @@
 // Pencere: ArtisanRegisterModal (eski App.tsx 10776–11111)
+import { AreaMultiSelect } from '../AreaMultiSelect';
 import { ESNAF_TURLERI } from '../serviceMatching';
 import { Store, X, User as UserIcon, Phone, MapPin, Clock, Tag, Coins } from 'lucide-react';
 import { useApp } from '../app/AppContext';
@@ -13,6 +14,7 @@ export function ArtisanRegisterModal() {
     setArtisanDescription, artisanRegisterEmail, setArtisanRegisterEmail, artisanRegisterPassword,
     setArtisanRegisterPassword, artisanRegisterName, setArtisanRegisterName, artisanIsSubmitting,
     handleAddArtisanTag, handleRemoveArtisanTag, handleSubmitArtisanOnboarding, renderAreaSelect,
+    artisanExtraAreas, setArtisanExtraAreas,
   } = useApp();
   return (
     <>
@@ -146,6 +148,18 @@ export function ArtisanRegisterModal() {
                   </label>
                   {renderAreaSelect(artisanKind, artisanCategory, setArtisanCategory, artisanCustomArea, setArtisanCustomArea)}
                 </div>
+
+                {artisanKind === 'usta' && (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Ek Faaliyet Alanları (isteğe bağlı)</label>
+                    <AreaMultiSelect
+                      options={ALL_SERVICE_CATEGORIES.map((c: any) => c.name as string)}
+                      primary={artisanCategory}
+                      value={artisanExtraAreas}
+                      onChange={setArtisanExtraAreas}
+                    />
+                  </div>
+                )}
 
                 {/* Telefon & WhatsApp */}
                 <div>

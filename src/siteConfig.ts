@@ -16,6 +16,8 @@ export const PHARMACY_DISTRICT_LABEL = 'Bursa (Osmangazi, Nilüfer, Yıldırım)
 // Burulaş: resmi canlı otobüs takibi (Otobüsüm Nerede) ve Burulaş sitesi.
 export const BURULAS_LIVE_URL = 'https://www.bursakart.com.tr/wheremybus';
 export const BURULAS_SITE_URL = 'https://www.burulas.com.tr';
+// BursaKart (bilet / kart yükleme) resmî sayfası.
+export const BURSAKART_URL = 'https://www.bursakart.com.tr';
 // Mahalleden ve yakınındaki duraktan geçen hatlar (mahalle sakinlerinin bildirdiği gerçek bilgi).
 // `name` bilinmiyorsa yazılmaz; uydurma hat adı eklenmez.
 export interface BusLine { code: string; name?: string }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Camera, Loader2, RefreshCw, X } from 'lucide-react';
+import { useOverlayBack } from './backNav';
 
 // Doğrudan cihaz kamerasından fotoğraf çekme penceresi.
 // Çekilen kare File olarak üst bileşene verilir (orada kırpma ve yükleme akışına girer).
@@ -23,6 +24,8 @@ export default function CameraCaptureModal({
   onCancel,
   onUnavailable,
 }: CameraCaptureModalProps) {
+  // Geri tuşu bu pencereyi kapatır
+  useOverlayBack(true, onCancel, 'kamera');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [mode, setMode] = useState<'environment' | 'user'>(facing);

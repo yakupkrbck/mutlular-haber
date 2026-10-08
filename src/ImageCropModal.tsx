@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Loader2, Minus, Plus, X } from 'lucide-react';
+import { useOverlayBack } from './backNav';
 
 // Fotoğraf yüklemeden önce yakınlaştırıp kırpma penceresi.
 // Dış paket kullanmaz: sürükle = konumlandır, iki parmak / çubuk / fare tekerleği = yakınlaştır.
@@ -51,6 +52,8 @@ export default function ImageCropModal({
   onDone,
   onSkip,
 }: ImageCropModalProps) {
+  // Geri tuşu bu pencereyi kapatır (alttaki pencere açık kalır)
+  useOverlayBack(true, onCancel, 'kirp');
   const [imgUrl, setImgUrl] = useState('');
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);

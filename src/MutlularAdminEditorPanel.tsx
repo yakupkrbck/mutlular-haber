@@ -1,4 +1,8 @@
 import { tarihEtiketi } from './serviceMatching';
+import { AdminBusManager } from './AdminBusManager';
+import { AdminCategoryManager } from './AdminCategoryManager';
+import type { BusLine } from './busData';
+import type { NewsCategory } from './categories';
 import { type LiveConfig, EMPTY_LIVE, toEmbedUrl } from './liveStream';
 import { AdminDataManager } from './AdminDataManager';
 import React, { useState, useEffect } from 'react';
@@ -57,6 +61,10 @@ interface MutlularAdminEditorPanelProps {
   onTogglePoll?: (p: any) => Promise<void>;
   onDeletePoll?: (p: any) => Promise<void>;
   openTab?: string;
+  /** Yöneticinin girdiği otobüs hatları (bus_lines) */
+  busLines?: Partial<BusLine>[];
+  /** Haber kategorileri (yönetilebilir; yoksa varsayılan) */
+  newsCategories?: NewsCategory[];
   pendingBusinesses?: any[];
   pendingCampaigns?: any[];
   onApproveBusiness?: (b: any) => Promise<void>;
@@ -80,6 +88,8 @@ export function MutlularAdminEditorPanel({
   isAdmin,
   isEditor,
   currentUser,
+  busLines = [],
+  newsCategories = [],
   newsItems,
   allUsers,
   onPublishNews,
@@ -109,7 +119,7 @@ export function MutlularAdminEditorPanel({
   activeDemoRole = 'admin',
   showToast
 }: MutlularAdminEditorPanelProps) {
-  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live' | 'deceased' | 'social' | 'esnaf' | 'polls'>('review_tips');
+  const [activeTab, setActiveTab] = useState<'create_news' | 'review_tips' | 'manage_roles' | 'manage_content' | 'live' | 'deceased' | 'social' | 'esnaf' | 'polls' | 'otobus' | 'kategoriler'>('review_tips');
 
   // Review sub-filter
   const [tipFilter, setTipFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -438,6 +448,32 @@ export function MutlularAdminEditorPanel({
                 <span>İçerik Yönetimi</span>
               </button>
             )}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('otobus')}
+                className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'otobus'
+                    ? 'bg-white text-blue-700 shadow-sm border border-slate-200/80 ring-2 ring-blue-500/20'
+                    : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+                }`}
+              >
+                <span>🚌</span>
+                <span>Otobüs Hatları</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('kategoriler')}
+                className={`px-4 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'kategoriler'
+                    ? 'bg-white text-amber-700 shadow-sm border border-slate-200/80 ring-2 ring-amber-500/20'
+                    : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+                }`}
+              >
+                <span>🗂️</span>
+                <span>Kategoriler & Ustalar</span>
+              </button>
+            )}
           </div>
 
           <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
@@ -764,13 +800,10 @@ export function MutlularAdminEditorPanel({
                       onChange={(e) => setNewsCategory(e.target.value)}
                       className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:border-blue-500 font-medium"
                     >
-                      <option value="Belediye & Hizmet">Belediye &amp; Hizmet</option>
-                      <option value="Çevre & Parklar">Çevre &amp; Parklar</option>
-                      <option value="Asayiş & Güvenlik">Asayiş &amp; Güvenlik</option>
-                      <option value="Dayanışma & Doğa">Dayanışma &amp; Doğa</option>
-                      <option value="Eğitim & Kültür">Eğitim &amp; Kültür</option>
-                      <option value="Spor & Gençlik">Spor &amp; Gençlik</option>
-                      <option value="Duyuru">Genel Muhtarlık Duyurusu</option>
+                      {newsCategory && !newsCategories.some((c) => c.ad === newsCategory) && <option value={newsCategory}>{newsCategory}</option>}
+                      {newsCategories.map((c) => (
+                        <option key={c.id} value={c.ad}>{c.ikon} {c.ad}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -1239,6 +1272,12 @@ export function MutlularAdminEditorPanel({
 
           {activeTab === 'manage_content' && isAdmin && (
             <AdminDataManager currentUid={currentUser?.uid} onToast={showToast} />
+          )}
+
+          {activeTab === 'otobus' && isAdmin && <AdminBusManager remoteLines={busLines} onToast={showToast} />}
+
+          {activeTab === 'kategoriler' && isAdmin && (
+            <AdminCategoryManager allUsers={allUsers || []} adminUid={currentUser?.uid || ''} onToast={showToast} />
           )}
 
           {activeTab === 'manage_roles' && (

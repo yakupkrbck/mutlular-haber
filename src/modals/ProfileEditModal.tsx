@@ -1,4 +1,5 @@
 // Pencere: ProfileEditModal (eski App.tsx 10577–10773)
+import { AreaMultiSelect } from '../AreaMultiSelect';
 import { ESNAF_TURLERI } from '../serviceMatching';
 import { X, Phone, MapPin, Clock } from 'lucide-react';
 import PhotoUploadField from '../PhotoUploadField';
@@ -11,7 +12,7 @@ export function ProfileEditModal() {
     editPhotoURL, setEditPhotoURL, editRole, setEditRole, editIsyeri, setEditIsyeri,
     editEsnafKategori, setEditEsnafKategori, editAdres, setEditAdres, editCalismaSaatleri,
     setEditCalismaSaatleri, editUzmanlikEtiketleri, setEditUzmanlikEtiketleri, editUzmanlikInput,
-    setEditUzmanlikInput, handleSaveProfile, renderAreaSelect,
+    setEditUzmanlikInput, handleSaveProfile, renderAreaSelect, editExtraAreas, setEditExtraAreas,
   } = useApp();
   return (
     <>
@@ -126,6 +127,17 @@ export function ProfileEditModal() {
                   <div>
                     <label className="text-[11px] font-bold text-amber-900 block mb-1">{editHesapTipi === 'usta' ? 'Faaliyet / Hizmet Alanı' : 'İşletme Türü'}</label>
                     {renderAreaSelect(editHesapTipi, editEsnafKategori, setEditEsnafKategori, editCustomArea, setEditCustomArea)}
+                    {editHesapTipi === 'usta' && (
+                      <div className="mt-2">
+                        <label className="text-[11px] font-bold text-amber-900 block mb-1">Ek Faaliyet Alanları</label>
+                        <AreaMultiSelect
+                          options={ALL_SERVICE_CATEGORIES.map((c: any) => c.name as string)}
+                          primary={editEsnafKategori}
+                          value={editExtraAreas}
+                          onChange={setEditExtraAreas}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* İşletme Adresi */}
