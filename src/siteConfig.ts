@@ -47,3 +47,6 @@ export const LOCAL_BUS_GROUPS: BusLineGroup[] = [
     ],
   },
 ];
+
+// Yayınlanan sürümün etiketi: ana sayfanın en altında görünür. Güncel dosyaların yüklendiğini buradan doğrularsınız.
+export const APP_SURUM = '2026-10-07-v4';

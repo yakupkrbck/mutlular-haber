@@ -32,6 +32,11 @@ interface Row { p: DutyPharmacy; near: boolean; km: number | null }
 
 type DutyState = { status: 'loading' } | { status: 'unavailable' } | { status: 'ready'; data: DutyData };
 
+/** Bundan düşük doğruluktaki konumda mesafeler "yaklaşık" (~) gösterilir. */
+const LOW_ACCURACY_M = 1500;
+/** En yakın eczane bu kadar uzaktaysa konumun yanlış olduğu varsayılır (Bursa merkezinden çok uzak). */
+const FAR_FROM_BURSA_KM = 40;
+
 const FALLBACK_SOURCE_URL = 'https://www.beo.org.tr/nobetci-eczaneler';
 
 // ───────── yardımcılar ─────────
@@ -128,7 +133,8 @@ function formatKm(km: number) {
 // ───────── bileşen ─────────
 export function HomeNobetciEczane() {
   const state = useNobetciEczane();
-  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  // acc: konumun doğruluk yarıçapı (metre). Düşük doğrulukta mesafeler yaklaşık gösterilir.
+  const [pos, setPos] = useState<{ lat: number; lng: number; acc: number } | null>(null);
   const [geoMsg, setGeoMsg] = useState('');
   const [locating, setLocating] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -149,6 +155,8 @@ export function HomeNobetciEczane() {
     return withMeta.sort((a, b) => rank(a) - rank(b));
   }, [items, pos]);
 
+  const nearestKm = pos ? sorted.reduce<number | null>((m, r) => (r.km !== null && (m === null || r.km < m) ? r.km : m), null) : null;
+
   const locate = () => {
     if (!navigator.geolocation) {
       setGeoMsg('Bu cihaz konum özelliğini desteklemiyor.');
@@ -158,14 +166,15 @@ export function HomeNobetciEczane() {
     setGeoMsg('');
     navigator.geolocation.getCurrentPosition(
       (g) => {
-        setPos({ lat: g.coords.latitude, lng: g.coords.longitude });
+        setPos({ lat: g.coords.latitude, lng: g.coords.longitude, acc: Number.isFinite(g.coords.accuracy) ? g.coords.accuracy : 0 });
         setLocating(false);
       },
       () => {
         setGeoMsg('Konum izni verilmedi; liste olduğu gibi gösteriliyor.');
         setLocating(false);
       },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 5 * 60 * 1000 }
+      // Kesin konum iste (GPS/Wi-Fi), eski konumu kullanma: mesafeler gerçek yerinize göre hesaplansın
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30 * 1000 }
     );
   };
 
@@ -240,7 +249,7 @@ export function HomeNobetciEczane() {
           className="px-4 py-2.5 rounded-2xl bg-slate-950/40 hover:bg-slate-950/70 border border-white/30 text-white font-black text-xs flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-60 transition-all"
         >
           <LocateFixed className="w-4 h-4" />
-          {pos ? 'Konuma göre sıralandı' : locating ? 'Konum alınıyor…' : 'Bana en yakın olanı bul'}
+          {locating ? 'Konum alınıyor…' : pos ? 'Konumu yenile' : 'Bana en yakın olanı bul'}
         </button>
       </div>
 
@@ -250,6 +259,24 @@ export function HomeNobetciEczane() {
         </div>
       )}
       {geoMsg && <div className="relative z-10 text-[11px] text-red-100">{geoMsg}</div>}
+
+      {pos && (
+        <div className="relative z-10 text-[11px] text-red-50 rounded-xl bg-white/10 border border-white/20 px-3 py-2 space-y-1">
+          <div>
+            Mesafeler konumunuza <strong>kuş uçuşu</strong> uzaklıktır; yol mesafesi daha uzun olabilir. Gerçek rota için “Yol tarifi”ni kullanın.
+          </div>
+          {pos.acc > LOW_ACCURACY_M && (
+            <div className="text-amber-200 font-bold">
+              Konum doğruluğu düşük (±{formatKm(pos.acc / 1000)}); mesafeler yaklaşıktır. Cihazın konum ayarında “kesin konum”u açıp “Konumu yenile”ye dokunun.
+            </div>
+          )}
+          {nearestKm !== null && nearestKm > FAR_FROM_BURSA_KM && (
+            <div className="text-amber-200 font-bold">
+              Konumunuz Bursa'dan uzak görünüyor (en yakın eczane {formatKm(nearestKm)}); cihaz konumu yanlış olabilir.
+            </div>
+          )}
+        </div>
+      )}
 
       <ul className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-2.5">
         {visible.map(({ p, near, km }, i) => (
@@ -261,7 +288,11 @@ export function HomeNobetciEczane() {
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
                 {near && <span className="text-[10px] font-black bg-white text-red-700 px-1.5 py-0.5 rounded">Mahallede</span>}
-                {km !== null && <span className="text-[10px] font-black bg-amber-300 text-slate-900 px-1.5 py-0.5 rounded">{formatKm(km)}</span>}
+                {km !== null && (
+                  <span className="text-[10px] font-black bg-amber-300 text-slate-900 px-1.5 py-0.5 rounded" title="Kuş uçuşu mesafe">
+                    {pos && pos.acc > LOW_ACCURACY_M ? '~' : ''}{formatKm(km)}
+                  </span>
+                )}
               </div>
             </div>
             <p className="text-[11px] text-red-50 flex items-start gap-1.5 leading-snug">
